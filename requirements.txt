@@ -1,0 +1,16 @@
+# IPO 공모주 대시보드 — Python 의존성
+# 마스터 추출: extract_ipo_data.py (openpyxl 필수)
+# DART 보강: fetch_latest.py + dart_client.py (requests + python-dotenv 필수)
+
+# 필수 (코어 파이프라인)
+openpyxl>=3.1
+requests>=2.31
+python-dotenv>=1.0
+
+# 권장 (DART 보강 + 38.co.kr fallback + 가격 보강)
+pandas>=2.0
+finance-datareader>=0.9
+pykrx>=1.0
+rapidfuzz>=3.5
+beautifulsoup4>=4.12
+lxml>=4.9

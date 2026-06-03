@@ -1,0 +1,53 @@
+name: Update IPO Data (Weekly)
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # 매주 월요일 06:00 UTC (한국 시간 오후 3시)
+  workflow_dispatch:      # 수동 실행 가능
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r ipo-dashboard/requirements.txt
+
+      - name: Dry-run validation (smoke test)
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          python ipo-dashboard/scripts/fetch_latest.py \
+            --append-to ipo-dashboard/data/ipo-recent.json \
+            --days 14 \
+            --dry-run
+
+      - name: Run fetch script (append recent)
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          python ipo-dashboard/scripts/fetch_latest.py \
+            --append-to ipo-dashboard/data/ipo-recent.json \
+            --days 14 \
+            --candidates-out ipo-dashboard/data/dart_candidates_review.json
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ipo-dashboard/data/ipo-recent.json ipo-dashboard/data/dart_candidates_review.json
+          git diff --cached --quiet || git commit -m "chore: weekly IPO data update [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# 참고: 실제 스크래핑은 GitHub Actions IP가 차단될 수 있음.
+# 권장: 로컬 또는 자체 서버에서 실행 후 JSON만 커밋.

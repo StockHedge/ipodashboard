@@ -1,0 +1,36 @@
+# Secrets & local environment
+.env
+.env.local
+.env.*.local
+
+# Generated data (run extract_ipo_data.py / fetch_latest.py to regenerate)
+data/ipo-recent.json
+data/dart_corp_code.json
+data/dart_candidates_review.json
+data/.kis_token.json
+data/ipo-recent.js
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Node (in case any dashboard tooling is added later)
+node_modules/
+
+# Logs / temp
+*.log
+*.tmp
+.cache/
