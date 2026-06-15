@@ -22,13 +22,18 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import re
 import socketserver
 import subprocess
 import sys
 import time
 import threading
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+from xml.etree import ElementTree as ET
+import urllib.request
 
 ROOT = Path(__file__).parent.parent.resolve()
 SCRIPTS = ROOT / "scripts"
@@ -154,6 +159,125 @@ def _cache_set(key: str, payload: dict, ttl: int = PRICE_TTL):
     """ttl 키워드 인자 지원 (KRX 같은 일별 데이터는 더 긴 TTL 필요)."""
     with _price_cache_lock:
         _price_cache[key] = (time.time(), payload, ttl)
+
+
+# ============================================================
+# 뉴스/RSS 헬퍼
+# ============================================================
+
+def _clean_html_text(s: str) -> str:
+    """HTML 태그·HTML 엔티티 제거."""
+    s = re.sub(r"<[^>]+>", "", s)
+    return s.replace("&quot;", '"').replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").strip()
+
+
+def _rfc2822_to_iso(raw: str) -> str:
+    """RFC 2822 날짜 → ISO 8601."""
+    if not raw:
+        return ""
+    try:
+        dt = parsedate_to_datetime(raw)
+        return dt.isoformat()
+    except Exception:
+        return raw
+
+
+_DART_IPO_KEYWORDS = ["증권신고서", "투자설명서", "정정신고서"]
+
+
+def _fetch_dart_ipo_news(days: int = 7) -> list[dict]:
+    """
+    DART list.json — IPO 관련 공시(증권신고서/투자설명서/정정) 필터 후 반환.
+    DART_API_KEY 없으면 빈 리스트.
+    """
+    api_key = os.environ.get("DART_API_KEY", "")
+    if not api_key:
+        sys.stderr.write("[serve] DART_API_KEY 미설정 — dart 뉴스 스킵\n")
+        return []
+
+    from datetime import timedelta
+    end_dt = datetime.now()
+    bgn_dt = end_dt - timedelta(days=days)
+    bgn_de = bgn_dt.strftime("%Y%m%d")
+    end_de = end_dt.strftime("%Y%m%d")
+
+    url = (
+        f"https://opendart.fss.or.kr/api/list.json"
+        f"?crtfc_key={api_key}&bgn_de={bgn_de}&end_de={end_de}"
+        f"&pblntf_ty=C&pblntf_detail_ty=C001&page_count=100"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ipo-dashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        sys.stderr.write(f"[serve] DART list.json 요청 실패: {e}\n")
+        return []
+
+    if data.get("status") != "000":
+        sys.stderr.write(f"[serve] DART API 오류: {data.get('status')} {data.get('message')}\n")
+        return []
+
+    items = []
+    for it in data.get("list", []):
+        report_nm = it.get("report_nm", "")
+        if not any(kw in report_nm for kw in _DART_IPO_KEYWORDS):
+            continue
+        rcept_no = it.get("rcept_no", "")
+        items.append({
+            "corp_name": it.get("corp_name", ""),
+            "report_nm": report_nm,
+            "rcept_no": rcept_no,
+            "rcept_dt": it.get("rcept_dt", ""),
+            "link": f"https://dart.fss.or.kr/dsaf001/main.do?rcptNo={rcept_no}",
+            "source": "dart",
+        })
+    return items
+
+
+_HK_RSS_URLS = [
+    "https://www.hankyung.com/feed/finance",
+    "https://www.hankyung.com/rss/financial-investment",
+]
+
+
+def _fetch_rss_news() -> list[dict]:
+    """한국경제 RSS 파싱. 작동하는 첫 URL 사용, 실패 시 빈 리스트."""
+    for rss_url in _HK_RSS_URLS:
+        try:
+            req = urllib.request.Request(
+                rss_url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; ipo-dashboard/1.0)"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                raw = r.read()
+        except Exception as e:
+            sys.stderr.write(f"[serve] RSS fetch 실패 ({rss_url}): {e}\n")
+            continue
+
+        try:
+            root = ET.fromstring(raw)
+        except ET.ParseError as e:
+            sys.stderr.write(f"[serve] RSS XML 파싱 실패 ({rss_url}): {e}\n")
+            continue
+
+        ns = {"content": "http://purl.org/rss/1.0/modules/content/"}
+        items = []
+        for item in root.iter("item"):
+            title = (item.findtext("title") or "").strip()
+            link = (item.findtext("link") or "").strip()
+            pub_raw = (item.findtext("pubDate") or "").strip()
+            items.append({
+                "title": title,
+                "link": link,
+                "pubDate": _rfc2822_to_iso(pub_raw),
+                "source": "한국경제",
+            })
+        sys.stderr.write(f"[serve] RSS {rss_url} — {len(items)}건\n")
+        return items
+
+    sys.stderr.write("[serve] 모든 한국경제 RSS URL 실패\n")
+    return []
 
 
 def _safe_xlsx_path(raw: str) -> Path | None:
@@ -374,6 +498,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             names = {t: get_krx_name(t) for t in tickers}
             self._send_json({"ok": True, "names": names})
             return
+        if path == "/api/ipo/schedule":
+            self._send_json(self._handle_ipo_schedule(parse_qs(parsed.query)))
+            return
+        if path == "/api/news/search":
+            self._send_json(self._handle_news_search(parse_qs(parsed.query)))
+            return
+        if path == "/api/news/dart":
+            self._send_json(self._handle_news_dart(parse_qs(parsed.query)))
+            return
+        if path == "/api/news/rss":
+            self._send_json(self._handle_news_rss())
+            return
         super().do_GET()
 
     # ---------- price/market endpoints ----------
@@ -499,8 +635,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                             "institutional": inv.get("institutional"),
                             "unit": inv.get("unit"),
                         }
-                    except Exception:
-                        pass
+                    except Exception as inv_err:
+                        sys.stderr.write(f"[serve] 네이버 투자자 동향 실패 ({code}): {inv_err.__class__.__name__}: {inv_err}\n")
                     indices[code] = entry
                 except Exception as e:
                     errors[code] = f"naver: {e.__class__.__name__}: {e}"
@@ -520,6 +656,85 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         payload = {"indices": indices, "ts": time.time()}
         _cache_set("market", payload, ttl=PRICE_TTL)
         return {"ok": True, "cached": False, "indices": indices, "errors": errors}
+
+    def _handle_ipo_schedule(self, qs: dict) -> dict:
+        """GET /api/ipo/schedule — TTL 6시간, ?refresh=1 캐시 무시."""
+        cache_key = "ipo:schedule"
+        force = (qs.get("refresh") or [""])[0] == "1"
+        if not force:
+            cached = _cache_get(cache_key)
+            if cached:
+                return {"updated": cached.get("updated"), "source": "KIND", "items": cached.get("items", [])}
+        try:
+            from kind_client import get_ipo_schedule
+            items = get_ipo_schedule(fetch_detail=True)
+        except Exception as e:
+            sys.stderr.write(f"[serve] KIND 클라이언트 오류: {e}\n")
+            return {"error": "kind_fetch_failed", "updated": None, "source": "KIND", "items": []}
+        updated = datetime.now(timezone.utc).isoformat()
+        payload = {"updated": updated, "items": items}
+        _cache_set(cache_key, payload, ttl=21600)
+        return {"updated": updated, "source": "KIND", "items": items}
+
+    def _handle_news_search(self, qs: dict) -> dict:
+        """GET /api/news/search?q=종목명&display=10 — TTL 600."""
+        q = (qs.get("q") or [""])[0].strip()
+        if not q:
+            return {"error": "q_param_required", "items": []}
+        try:
+            display = max(1, min(int((qs.get("display") or ["10"])[0]), 100))
+        except (ValueError, TypeError):
+            display = 10
+        cache_key = f"news:search:{q}:{display}"
+        cached = _cache_get(cache_key)
+        if cached:
+            return {"items": cached}
+        nv = get_naver()
+        if not nv:
+            return {"error": "naver_client_init_failed", "items": []}
+        try:
+            items = nv.search_news(q, display=display)
+        except Exception as e:
+            code = getattr(e, "code", None)  # NaverConfigError 는 식별 코드 보유
+            if code:
+                # 설정 오류(키 미설정/인증 실패)는 캐시하지 않고 프론트에 코드 전달
+                return {"error": code, "items": []}
+            sys.stderr.write(f"[serve] 네이버 뉴스 검색 오류: {e}\n")
+            return {"error": "naver_search_failed", "items": []}
+        _cache_set(cache_key, items, ttl=600)
+        return {"items": items}
+
+    def _handle_news_dart(self, qs: dict) -> dict:
+        """GET /api/news/dart?days=7 — TTL 1800."""
+        try:
+            days = max(1, min(int((qs.get("days") or ["7"])[0]), 90))
+        except (ValueError, TypeError):
+            days = 7
+        cache_key = f"news:dart:{days}"
+        cached = _cache_get(cache_key)
+        if cached:
+            return {"items": cached}
+        try:
+            items = _fetch_dart_ipo_news(days=days)
+        except Exception as e:
+            sys.stderr.write(f"[serve] DART 뉴스 오류: {e}\n")
+            return {"error": "dart_fetch_failed", "items": []}
+        _cache_set(cache_key, items, ttl=1800)
+        return {"items": items}
+
+    def _handle_news_rss(self) -> dict:
+        """GET /api/news/rss — TTL 900."""
+        cache_key = "news:rss"
+        cached = _cache_get(cache_key)
+        if cached:
+            return {"items": cached}
+        try:
+            items = _fetch_rss_news()
+        except Exception as e:
+            sys.stderr.write(f"[serve] RSS 오류: {e}\n")
+            return {"error": "rss_fetch_failed", "items": []}
+        _cache_set(cache_key, items, ttl=900)
+        return {"items": items}
 
     def do_POST(self):
         if self.path == "/api/refresh-xlsx":
@@ -570,6 +785,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
+    # Windows cp949 콘솔에서 한글/특수문자 출력 안전
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except AttributeError:
+        pass
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     addr = ("127.0.0.1", port)
     xlsx = default_xlsx()
@@ -592,10 +813,29 @@ def main():
     print(f"  GET  /api/index-daily?code=0001 — 지수 일별 (sparkline)")
     print(f"  GET  /api/stock-info?ticker=NNN — 종목명 (fdr 캐시)")
     print(f"  GET  /api/krx/investor          — KRX 시장 투자자별 매매동향")
+    print(f"  GET  /api/ipo/schedule          — 공모주 일정 (TTL 6h, ?refresh=1)")
+    print(f"  GET  /api/news/search?q=...     — 네이버 뉴스 검색 (TTL 10m)")
+    print(f"  GET  /api/news/dart?days=7      — DART IPO 공시 (TTL 30m)")
+    print(f"  GET  /api/news/rss              — 한국경제 RSS (TTL 15m)")
     print(f"  POST /api/refresh-xlsx          — XLSX 재추출")
     print(f"  POST /api/refresh-dart          — DART estkRs 보강")
     print(f"  POST /api/refresh-all           — 둘 다 순차")
     print(f"[serve] Ctrl+C 로 종료")
+
+    # 공모주 일정 warm-up — 첫 요청자가 38.co.kr 상세 조회로 수십 초 대기하지 않도록
+    # 백그라운드에서 캐시 선적재 (H-1). 실패해도 서버 기동에 영향 없음.
+    def _warm_ipo_schedule():
+        try:
+            from kind_client import get_ipo_schedule
+            items = get_ipo_schedule(fetch_detail=True)
+            if items:
+                _cache_set("ipo:schedule",
+                           {"updated": datetime.now(timezone.utc).isoformat(), "items": items},
+                           ttl=21600)
+                sys.stderr.write(f"[serve] IPO 일정 warm-up 완료: {len(items)}건\n")
+        except Exception as e:
+            sys.stderr.write(f"[serve] IPO 일정 warm-up 실패 (무시): {e}\n")
+    threading.Thread(target=_warm_ipo_schedule, daemon=True).start()
 
     class ThreadedServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True

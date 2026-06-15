@@ -34,3 +34,9 @@ node_modules/
 *.log
 *.tmp
 .cache/
+
+# Claude Code 로컬 도구 설정 (개인 워크플로/모델정책 — 제품 외, 공개 제외)
+.claude/
+
+# CLI 테스트 출력 산출물
+*_out.txt

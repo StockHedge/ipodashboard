@@ -39,7 +39,10 @@ KRX_BASE = "https://data-dbg.krx.co.kr"
 KRX_BASE_FALLBACK = "https://data-dbg.krx.co.kr"  # openapi 는 404 확정 → 단일 도메인
 # 지수 일별시세 — "KRX 시리즈 일별시세정보". 한 날짜 전체 KRX 시리즈 지수 반환
 # response OutBlock_1: BAS_DD/IDX_CLSS/IDX_NM/CLSPRC_IDX/CMPPREVDD_IDX/FLUC_RT/OPNPRC_IDX/HGPRC_IDX/LWPRC_IDX/ACC_TRDVOL/ACC_TRDVAL/MKTCAP
-KRX_INDEX_DD = "/svc/apis/idx/krx_dd_trd"
+KRX_INDEX_DD = "/svc/apis/idx/krx_dd_trd"  # KRX 시리즈(KRX 300/TMI 등) — 코스피/코스닥 미포함
+# 대표지수: 코스피/코스닥은 krx_dd_trd 에 없음 → 별도 endpoint (교차테스트 확정 2026-06)
+KRX_KOSPI_DD = "/svc/apis/idx/kospi_dd_trd"    # 코스피 시리즈 (IDX_NM='코스피' 가 대표)
+KRX_KOSDAQ_DD = "/svc/apis/idx/kosdaq_dd_trd"  # 코스닥 시리즈 (IDX_NM='코스닥' 가 대표)
 
 logger = logging.getLogger("krx_client")
 if not logger.handlers:
@@ -47,6 +50,61 @@ if not logger.handlers:
     h.setFormatter(logging.Formatter("[krx] %(levelname)s %(message)s"))
     logger.addHandler(h)
 logger.setLevel(logging.INFO)
+
+# ─── 한국 증시 공휴일 (KRX 휴장일) ─────────────────────────────────
+# 출처: KRX 공식 공시(trading calendar) + 기획재정부 임시공휴일 고시.
+# 음력 설·추석은 전·당일·익일 3일, 연도별 음력→양력 변환 적용.
+# 보수적 원칙: 불확실한 날짜는 포함하지 않음(오탐이 미탐보다 안전).
+# 임시공휴일은 고시 확정분만 포함.
+KRX_HOLIDAYS: frozenset[str] = frozenset({
+    # 2024
+    "20240101",  # 신정
+    "20240209", "20240210", "20240211", "20240212",  # 설연휴(2/9~12, 2/12 대체공휴일)
+    "20240301",  # 삼일절
+    "20240410",  # 국회의원 선거일 (임시공휴일)
+    "20240501",  # 근로자의 날
+    "20240505",  # 어린이날
+    "20240506",  # 어린이날 대체공휴일
+    "20240515",  # 부처님오신날
+    "20240606",  # 현충일
+    "20240815",  # 광복절
+    "20240916", "20240917", "20240918",  # 추석연휴(9/16~18)
+    "20240930",  # 임시공휴일(추석 대체)
+    "20241003",  # 개천절
+    "20241009",  # 한글날
+    "20241225",  # 성탄절
+    "20241231",  # KRX 연말 휴장
+    # 2025
+    "20250101",  # 신정
+    "20250128", "20250129", "20250130",  # 설연휴(1/28~30)
+    "20250301",  # 삼일절
+    "20250303",  # 3·1절 대체공휴일
+    "20250505",  # 어린이날 + 부처님오신날
+    "20250506",  # 어린이날 대체공휴일
+    "20250606",  # 현충일
+    "20250815",  # 광복절
+    "20251003",  # 개천절
+    "20251005", "20251006", "20251007",  # 추석연휴(10/5~7)
+    "20251008",  # 추석 대체공휴일
+    "20251009",  # 한글날
+    "20251225",  # 성탄절
+    "20251231",  # KRX 연말 휴장
+    # 2026
+    "20260101",  # 신정
+    "20260216", "20260217", "20260218",  # 설연휴(2/16~18)
+    "20260301",  # 삼일절
+    "20260302",  # 삼일절 대체공휴일
+    "20260505",  # 어린이날
+    "20260524",  # 부처님오신날
+    "20260606",  # 현충일
+    "20260608",  # 지방선거일 (임시공휴일, 2026-06-08 확정)
+    "20260815",  # 광복절
+    "20260924", "20260925", "20260926",  # 추석연휴(9/24~26)
+    "20261003",  # 개천절
+    "20261009",  # 한글날
+    "20261225",  # 성탄절
+    "20261231",  # KRX 연말 휴장
+})
 
 
 class KrxError(Exception):
@@ -107,40 +165,65 @@ class KrxClient:
     # KRX OpenAPI 공식 endpoint 명이 추측 기반 → fallback chain 으로 자동 시도
     # 사용자가 정확한 endpoint 알려주면 path_chain 우선순위 조정
     # ----------------------------------------------------------------
-    def get_market_investor(self, date: str | None = None, market: str = "KOSPI") -> dict:
-        if not date:
-            date = self._guess_latest_biz_day()
+    def get_market_investor(
+        self,
+        date: str | None = None,
+        market: str = "KOSPI",
+        _walk_back: int = 5,
+    ) -> dict:
+        """시장 투자자별 매매동향.
+
+        date 미지정 시 최근 영업일에서 시작해 데이터가 없으면 직전 영업일로
+        최대 _walk_back 회 역추적 (공휴일·T+1 지연 대응).
+        401 인증 실패는 즉시 전파 (날짜 무관하게 모든 날짜에서 동일 실패).
+        """
+        requested = date or self._guess_latest_biz_day()
+        explicit = date is not None
         is_kospi = market.upper() == "KOSPI"
-        # 여러 가능 endpoint chain (404 시 다음 시도)
         prefix = "kosp" if is_kospi else "kosdaq"
         prefix_short = "ksp" if is_kospi else "ksq"
         path_chain = [
-            f"/svc/apis/sto/{prefix}_invr_summary",       # 일반 추측
-            f"/svc/apis/sto/{prefix_short}_invr_summary",  # 단축 형식
+            f"/svc/apis/sto/{prefix}_invr_summary",
+            f"/svc/apis/sto/{prefix_short}_invr_summary",
             f"/svc/apis/idx/{prefix}_invr_summary",
             f"/svc/apis/idx/{prefix_short}_invr_summary",
-            f"/svc/apis/sto/{prefix}_invsr_t",             # 별도 형식
-            f"/svc/apis/sto/inv_value_tr",                 # 통합 endpoint (시장 X)
+            f"/svc/apis/sto/{prefix}_invsr_t",
+            f"/svc/apis/sto/inv_value_tr",
             f"/svc/apis/sto/{prefix}_dly_invsr",
             f"/svc/apis/sto/inv_isu_invr_summary",
         ]
-        last_err = None
-        for path in path_chain:
-            try:
-                data = self._get(path, {"basDd": date})
-                # 정상 응답 시 정규화 + 사용된 path 표시
-                norm = self._normalize_investor(data, market, date)
-                norm["_endpoint"] = path
-                if norm.get("investors"):  # 비어있지 않을 때만 채택
-                    return norm
-                last_err = KrxError(f"{path} 응답에 investors 없음")
-            except KrxError as e:
-                last_err = e
-                if e.http_status not in (404, 400):
-                    # 404/400 이 아니면 (예: 401 인증, 500 서버) 즉시 중단
-                    break
-        # 모든 시도 실패
-        raise KrxError(f"시장 투자자 매매 endpoint 자동 탐색 실패 (시도 {len(path_chain)}개) — 마지막 오류: {last_err}")
+
+        cur = requested
+        for walk_attempt in range(_walk_back + 1):
+            last_err: KrxError | None = None
+            for path in path_chain:
+                try:
+                    data = self._get(path, {"basDd": cur})
+                    norm = self._normalize_investor(data, market, cur)
+                    norm["_endpoint"] = path
+                    norm["requested_date"] = requested
+                    if norm.get("investors"):
+                        return norm
+                    last_err = KrxError(f"{path} 응답에 investors 없음")
+                except KrxError as e:
+                    last_err = e
+                    if e.http_status not in (404, 400):
+                        # 401(인증)·500 등은 날짜 바꿔도 해결 안 됨 — 즉시 전파
+                        raise
+            # 해당 날짜에서 모든 path 실패 → 역추적 조건 판단
+            if explicit or walk_attempt >= _walk_back:
+                break
+            prev = self._prev_biz_day(cur)
+            logger.warning(
+                "get_market_investor: %s 데이터 없음 — %s 로 역추적 (%d/%d)",
+                cur, prev, walk_attempt + 1, _walk_back,
+            )
+            cur = prev
+
+        raise KrxError(
+            f"시장 투자자 매매 endpoint 자동 탐색 실패 "
+            f"(시도 날짜={cur}, path {len(path_chain)}개) — 마지막 오류: {last_err}"
+        )
 
     def _normalize_investor(self, raw: dict, market: str, date: str) -> dict:
         """KRX OpenAPI 응답을 일관 dict 로 정규화."""
@@ -158,12 +241,17 @@ class KrxClient:
                 out["investors"].append({"name": str(name), "net": net, "buy": buy, "sell": sell})
         return out
 
+    @staticmethod
+    def _is_krx_holiday(d: datetime) -> bool:
+        """주말 또는 KRX 공휴일 여부."""
+        return d.weekday() >= 5 or d.strftime("%Y%m%d") in KRX_HOLIDAYS
+
     def _guess_latest_biz_day(self) -> str:
-        """오늘 기준 가장 가까운 영업일 (월~금). 시간 14:30 이전이면 전일."""
+        """오늘 기준 가장 가까운 영업일 (월~금, 공휴일 제외). 17:00 이전이면 전일."""
         d = datetime.now()
         if d.hour < 17:  # 장 마감 + 데이터 반영 시각 추정
             d -= timedelta(days=1)
-        while d.weekday() >= 5:  # 토(5), 일(6) 건너뜀
+        while self._is_krx_holiday(d):  # 주말 + 공휴일 건너뜀
             d -= timedelta(days=1)
         return d.strftime("%Y%m%d")
 
@@ -171,23 +259,56 @@ class KrxClient:
     # KRX 시리즈 일별시세 (확정 endpoint: /svc/apis/idx/krx_dd_trd)
     # 한 날짜의 전체 KRX 지수 시세 → KOSPI/KOSDAQ 추출
     # ----------------------------------------------------------------
-    def get_index_series(self, date: str | None = None) -> dict:
-        if not date:
-            date = self._guess_latest_biz_day()
-        data = self._get(KRX_INDEX_DD, {"basDd": date})
+    def get_index_series(self, date: str | None = None, _walk_back: int = 7) -> dict:
+        """KOSPI/KOSDAQ 대표지수 일별시세.
+
+        주의: krx_dd_trd 는 KRX 시리즈(KRX 300 등)만 반환 → 코스피/코스닥은
+        kospi_dd_trd / kosdaq_dd_trd 별도 endpoint 사용 (교차테스트 확정).
+        date 미지정 시 최근 영업일이 아직 미반영(빈 배열)이면 직전 영업일로
+        최대 _walk_back 회 역추적 (T+1 지연·휴장 대응). 명시 date 는 역추적 안 함.
+        """
+        requested = date or self._guess_latest_biz_day()
+        cur = requested
+        explicit = date is not None
+        for _ in range(_walk_back + 1):
+            kospi_rows = self._index_rows(KRX_KOSPI_DD, cur)
+            if kospi_rows:
+                kosdaq_rows = self._index_rows(KRX_KOSDAQ_DD, cur)
+                out = {
+                    "date": cur, "requested_date": requested,
+                    "indices": {}, "raw_count": len(kospi_rows) + len(kosdaq_rows),
+                }
+                kospi = _pick_index(kospi_rows, "코스피")
+                kosdaq = _pick_index(kosdaq_rows, "코스닥")
+                if kospi:
+                    out["indices"]["KOSPI"] = _extract_idx(kospi, "KOSPI", cur)
+                if kosdaq:
+                    out["indices"]["KOSDAQ"] = _extract_idx(kosdaq, "KOSDAQ", cur)
+                return out
+            if explicit:
+                break  # 명시 날짜는 역추적 안 함 (호출자 의도 존중)
+            cur = self._prev_biz_day(cur)
+        return {"date": requested, "requested_date": requested, "indices": {}, "raw_count": 0}
+
+    def _index_rows(self, path: str, date: str) -> list:
+        # 인증 실패(401)는 모든 날짜에서 동일하게 실패하므로 즉시 전파(역추적 무의미).
+        # 그 외 일시 오류(404/500/네트워크)는 빈 리스트로 강등해 walk-back 이 계속되게 함.
+        try:
+            data = self._get(path, {"basDd": date})
+        except KrxError as e:
+            if e.http_status == 401:
+                raise
+            return []
         rows = data.get("OutBlock_1") or data.get("output") or []
-        if isinstance(rows, dict):
-            rows = [rows]
-        # KOSPI / KOSDAQ 지수 추출 (IDX_NM 또는 유사 필드)
-        out = {"date": date, "indices": {}, "raw_count": len(rows)}
-        for r in rows:
-            name = str(r.get("IDX_NM") or r.get("idx_nm") or r.get("INDX_NM") or "")
-            # 대표 지수만
-            if name in ("코스피", "KOSPI"):
-                out["indices"]["KOSPI"] = _extract_idx(r, "KOSPI", date)
-            elif name in ("코스닥", "KOSDAQ"):
-                out["indices"]["KOSDAQ"] = _extract_idx(r, "KOSDAQ", date)
-        return out
+        return [rows] if isinstance(rows, dict) else rows
+
+    @staticmethod
+    def _prev_biz_day(yyyymmdd: str) -> str:
+        """직전 영업일 (주말 + 공휴일 건너뜀)."""
+        d = datetime.strptime(yyyymmdd, "%Y%m%d") - timedelta(days=1)
+        while d.weekday() >= 5 or d.strftime("%Y%m%d") in KRX_HOLIDAYS:
+            d -= timedelta(days=1)
+        return d.strftime("%Y%m%d")
 
     # ----------------------------------------------------------------
     # 종목 일별 매매정보 (참고용)
@@ -206,6 +327,14 @@ class KrxClient:
         if isinstance(rows, dict):
             rows = [rows]
         return rows
+
+
+def _pick_index(rows: list, name: str) -> dict | None:
+    """IDX_NM 정확 일치 행 선택 (코스피/코스닥 대표지수). 부분일치 금지 — 코스피200 등 오선택 방지."""
+    for r in rows:
+        if str(r.get("IDX_NM") or r.get("idx_nm") or "").strip() == name:
+            return r
+    return None
 
 
 def _extract_idx(r: dict, name: str, date: str) -> dict:
@@ -244,23 +373,18 @@ if __name__ == "__main__":
     c = KrxClient()
     date = sys.argv[1] if len(sys.argv) > 1 else None
 
-    # 1. 지수 일별시세 (명세서 확정 endpoint) - 키 활성화 검증의 핵심
-    print(f"\n=== [1] KRX 시리즈 일별시세 (지수) - {date or '직전 영업일'} ===")
-    print(f"    endpoint: {KRX_BASE}{KRX_INDEX_DD}")
+    # 1. KOSPI/KOSDAQ 대표지수 (kospi_dd_trd / kosdaq_dd_trd) - 키 활성화 검증의 핵심
+    print(f"\n=== [1] KOSPI/KOSDAQ 대표지수 - {date or '직전 영업일 (미반영 시 자동 역추적)'} ===")
+    print(f"    endpoint: {KRX_BASE}{KRX_KOSPI_DD} · {KRX_KOSDAQ_DD}")
     try:
         r = c.get_index_series(date)
-        print(f"    ✓ 성공! date={r.get('date')}, 전체 지수 {r.get('raw_count')}개")
         idx = r.get("indices", {})
         if idx:
-            print(f"    추출된 KOSPI/KOSDAQ: {list(idx.keys())}")
+            note = "" if r.get("date") == r.get("requested_date") else f" (요청 {r.get('requested_date')} → 반영일 {r.get('date')} 로 역추적)"
+            print(f"    ✓ 성공! date={r.get('date')}{note}, 지수 {r.get('raw_count')}개 중 대표 {len(idx)}종 추출")
             print(json.dumps(idx, ensure_ascii=False, indent=2))
         else:
-            print("    ⚠ KOSPI/KOSDAQ 매칭 실패 — IDX_NM 실제 값 확인 필요 (raw sample 아래):")
-            # 디버그: 원본 첫 3개 row 의 IDX_NM 표시
-            raw = c._get(KRX_INDEX_DD, {"basDd": date or c._guess_latest_biz_day()})
-            rows = raw.get("OutBlock_1") or []
-            for rr in rows[:5]:
-                print(f"      IDX_NM={rr.get('IDX_NM')!r} CLSPRC={rr.get('CLSPRC_IDX')!r}")
+            print(f"    ⚠ date={r.get('date')} 빈 결과 — 해당 기간 데이터 미존재 (KRX 실서비스 기준 미래일 가능)")
     except KrxError as e:
         print(f"    ✗ 실패: {e}")
 

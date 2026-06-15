@@ -11,8 +11,22 @@
   <!-- chartjs-plugin-zoom: 시간축 브러시(드래그→자동 필터) 용 -->
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-  <!-- Plotly for advanced viz (parallel coordinates + optional 3D PoC) - loaded on demand -->
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <!-- Plotly (고급분석 전용 ~3.5MB) — 초기 TTI 차단 방지 위해 head 동기 로드 제거, loadPlotly() 로 지연 로딩 -->
+  <script>
+    let _plotlyPromise = null;
+    function loadPlotly() {
+      if (window.Plotly) return Promise.resolve();
+      if (_plotlyPromise) return _plotlyPromise;
+      _plotlyPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
+        s.onload = () => resolve();
+        s.onerror = () => { _plotlyPromise = null; reject(new Error('Plotly load failed')); };
+        document.head.appendChild(s);
+      });
+      return _plotlyPromise;
+    }
+  </script>
 
   <!-- 실데이터 기본 탑재 (extract_ipo_data.py 가 생성). 없으면 graceful skip → 샘플 모드 -->
   <!-- file:// 에서도 작동 (script src 는 CORS 영향 적음). HTTP 서버 사용 시도 동일. -->
@@ -45,8 +59,28 @@
       --space-3: 0.75rem;
       --space-4: 1rem;
       --space-6: 1.5rem;
+      --space-5: 1.25rem;
       --space-8: 2rem;
       --space-12: 3rem;
+      --space-16: 4rem;
+
+      /* Typographic scale — 모듈러(~1.2) + 11px 하한(a11y). 컴포넌트는 이 토큰만 인용. */
+      --fs-2xs: 0.6875rem;  /* 11px — 마이크로 배지/메타 (최소 허용) */
+      --fs-xs:  0.75rem;    /* 12px */
+      --fs-sm:  0.8125rem;  /* 13px — 칩/보조 */
+      --fs-md:  0.875rem;   /* 14px — 본문/표 */
+      --fs-base: 1rem;      /* 16px */
+      --fs-lg:  1.125rem;   /* 18px — heading-2 */
+      --fs-xl:  1.375rem;   /* 22px */
+      --fs-stat: 1.5rem;    /* 24px — KPI 수치 */
+      --lh-tight: 1.2; --lh-snug: 1.4; --lh-body: 1.6;
+
+      /* 소형 칩 대비 안전 토큰 (11px 텍스트 → 어두운 fg 고정, color-mix 저대비 대체) */
+      --chip-demand-bg: oklch(0.93 0.05 255); --chip-demand-fg: oklch(0.40 0.13 255);
+      --chip-sub-bg:    oklch(0.95 0.08 85);  --chip-sub-fg:    oklch(0.45 0.10 85);
+      --chip-list-bg:   oklch(0.93 0.07 162); --chip-list-fg:   oklch(0.34 0.12 162);
+      --chip-lock-bg:   oklch(0.95 0.06 25);  --chip-lock-fg:   oklch(0.47 0.18 25);
+      --chip-news-bg:   oklch(0.95 0.006 270);--chip-news-fg:   oklch(0.42 0.01 270);
 
       /* Light theme (default) — OKLCH lightness 0.9+ for bg, 0.2~0.6 for text */
       --bg: oklch(0.975 0 0);
@@ -123,6 +157,12 @@
       --market-kosdaq-border: oklch(0.38 0.12 162);
       --row-hover: oklch(0.26 0.005 270);
 
+      --chip-demand-bg: oklch(0.30 0.10 255); --chip-demand-fg: oklch(0.88 0.10 255);
+      --chip-sub-bg:    oklch(0.32 0.10 85);  --chip-sub-fg:    oklch(0.90 0.11 85);
+      --chip-list-bg:   oklch(0.28 0.10 162); --chip-list-fg:   oklch(0.86 0.11 162);
+      --chip-lock-bg:   oklch(0.30 0.12 25);  --chip-lock-fg:   oklch(0.86 0.13 25);
+      --chip-news-bg:   oklch(0.28 0.005 270);--chip-news-fg:   oklch(0.80 0.005 270);
+
       --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.30);
       --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.35), 0 2px 4px -2px rgb(0 0 0 / 0.30);
     }
@@ -157,11 +197,11 @@
     .heading-2 { letter-spacing: -0.022em; }
     kbd {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.6875rem;
+      font-size: var(--fs-2xs);
     }
     
     .heading-1 { font-size: clamp(1.5rem, 2.2vw, 1.875rem); font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
-    .heading-2 { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; }
+    .heading-2 { font-size: var(--fs-lg); font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; }
     
     .card {
       background: var(--card);
@@ -172,19 +212,19 @@
     }
     .card:hover { box-shadow: var(--shadow-md); }
     
-    .kpi-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; }
-    .kpi-label { font-size: 0.75rem; font-weight: 500; color: var(--muted); letter-spacing: -0.01em; }
+    .kpi-value { font-size: var(--fs-stat); font-weight: 700; line-height: var(--lh-tight); letter-spacing: -0.03em; }
+    .kpi-label { font-size: var(--fs-xs); font-weight: 500; color: var(--muted); letter-spacing: -0.01em; }
     
     .filter-chip {
       padding: 0.375rem 0.875rem;
-      font-size: 0.8125rem;
+      font-size: var(--fs-sm);
       font-weight: 500;
       border-radius: 9999px;
       border: 1px solid var(--border);
       background: var(--card);
       color: var(--text);
       cursor: pointer;
-      transition: all 140ms ease-out;
+      transition: color 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
       white-space: nowrap;
     }
     .filter-chip:hover { border-color: var(--accent); }
@@ -197,14 +237,14 @@
     /* Strict new-listing filter — prominent, per impeccable-foundation */
     .strict-chip {
       padding: 0.5rem 1rem;
-      font-size: 0.8125rem;
+      font-size: var(--fs-sm);
       font-weight: 600;
       border-radius: 9999px;
       border: 2px solid var(--accent);
       background: var(--accent-light);
       color: var(--accent);
       cursor: pointer;
-      transition: all 140ms ease-out;
+      transition: color 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
       white-space: nowrap;
       word-break: keep-all;
       overflow-wrap: break-word;
@@ -220,7 +260,7 @@
     /* Source badges — 토큰화 (theme-aware) */
     .source-badge {
       display: inline-block;
-      font-size: 0.625rem;
+      font-size: var(--fs-2xs);
       font-weight: 700;
       letter-spacing: -0.01em;
       padding: 0.0625rem 0.375rem;
@@ -248,7 +288,7 @@
 
     /* Upcoming badge — theme-aware */
     .badge-upcoming {
-      font-size: 0.625rem;
+      font-size: var(--fs-2xs);
       padding: 0.0625rem 0.375rem;
       border-radius: 9999px;
       font-weight: 700;
@@ -268,13 +308,13 @@
     
     .sector-tag {
       padding: 0.25rem 0.625rem;
-      font-size: 0.75rem;
+      font-size: var(--fs-xs);
       font-weight: 500;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border);
       background: var(--card);
       cursor: pointer;
-      transition: all 120ms ease-out;
+      transition: color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
     }
     .sector-tag.active {
       background: var(--accent-light);
@@ -295,7 +335,7 @@
     }
     
     .data-table {
-      font-size: 0.875rem;
+      font-size: var(--fs-md);
     }
     .data-table th {
       font-weight: 600;
@@ -334,7 +374,7 @@
     /* 마켓 배지 — OKLCH 토큰 일관성 (KOSPI/KOSDAQ ad-hoc tailwind 색상 대체) */
     .market-badge {
       display: inline-block;
-      font-size: 0.6875rem;
+      font-size: var(--fs-2xs);
       font-weight: 600;
       padding: 0.125rem 0.5rem;
       border-radius: var(--radius-sm);
@@ -355,7 +395,7 @@
 
     /* 토큰화된 작은 메타 텍스트 (10px 인라인 제거) */
     .text-xxs {
-      font-size: 0.625rem;
+      font-size: var(--fs-2xs);
       line-height: 1.4;
     }
 
@@ -376,7 +416,7 @@
       background: var(--accent-light);
       color: var(--accent);
       border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
-      font-size: 0.6875rem;       /* 11px */
+      font-size: var(--fs-2xs);       /* 11px */
       font-weight: 600;
       letter-spacing: -0.01em;
       line-height: 1;
@@ -415,7 +455,7 @@
     .naver-link--prominent {
       height: 1.875rem;          /* 30px */
       padding: 0 0.75rem;
-      font-size: 0.8125rem;
+      font-size: var(--fs-sm);
       gap: 0.375rem;
     }
     .naver-link--prominent .naver-link__icon {
@@ -458,7 +498,7 @@
     }
     
     .metric-badge {
-      font-size: 0.6875rem;
+      font-size: var(--fs-2xs);
       padding: 0.125rem 0.5rem;
       border-radius: 9999px;
       font-weight: 600;
@@ -527,7 +567,7 @@
       justify-content: center;
       color: var(--card);
       font-weight: 800;
-      font-size: 0.75rem;
+      font-size: var(--fs-xs);
       letter-spacing: -0.03em;
     }
     .sidebar-brand__title {
@@ -536,13 +576,13 @@
       letter-spacing: -0.02em;
     }
     .sidebar-brand__sub {
-      font-size: 0.6875rem;
+      font-size: var(--fs-2xs);
       color: var(--muted);
       margin-top: 0.125rem;
     }
     .sidebar-nav { display: flex; flex-direction: column; gap: 0.125rem; }
     .sidebar-section-label {
-      font-size: 0.625rem;
+      font-size: var(--fs-2xs);
       font-weight: 700;
       color: var(--muted);
       letter-spacing: 0.04em;
@@ -556,7 +596,7 @@
       padding: 0.5rem 0.75rem;
       border-radius: var(--radius-md);
       color: var(--text);
-      font-size: 0.8125rem;
+      font-size: var(--fs-sm);
       font-weight: 500;
       cursor: pointer;
       transition: background 120ms ease-out, color 120ms ease-out;
@@ -576,7 +616,7 @@
     .sidebar-menu-item__icon { width: 1rem; height: 1rem; flex-shrink: 0; }
     .sidebar-menu-item__badge {
       margin-left: auto;
-      font-size: 0.625rem;
+      font-size: var(--fs-2xs);
       padding: 0.0625rem 0.375rem;
       border-radius: 9999px;
       background: var(--accent);
@@ -587,7 +627,7 @@
     }
     .sidebar-spacer { flex: 1; }
     .sidebar-meta {
-      font-size: 0.625rem;
+      font-size: var(--fs-2xs);
       color: var(--muted);
       padding: 0.5rem 0.75rem;
       border-top: 1px solid var(--border);
@@ -681,10 +721,10 @@
       border: 1px solid var(--border);
       background: var(--card);
       color: var(--muted);
-      font-size: 0.8125rem;
+      font-size: var(--fs-sm);
       font-weight: 500;
       cursor: pointer;
-      transition: all 120ms ease-out;
+      transition: color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
       white-space: nowrap;
     }
     .advanced-tab:hover { color: var(--text); border-color: var(--muted); }
@@ -695,6 +735,22 @@
     }
     .advanced-panel { display: none; }
     .advanced-panel.active { display: block; }
+
+    /* 4-view 재구조 — 오늘 보드 이벤트 칩 / 뉴스 피드 (대비 안전 토큰, 11px) */
+    .today-ev { flex-shrink: 0; font-size: var(--fs-2xs); font-weight: 600; padding: 0.0625rem var(--space-2); border-radius: 9999px; }
+    .today-ev--demand { background: var(--chip-demand-bg); color: var(--chip-demand-fg); }
+    .today-ev--sub    { background: var(--chip-sub-bg); color: var(--chip-sub-fg); }
+    .today-ev--list   { background: var(--chip-list-bg); color: var(--chip-list-fg); }
+    .today-ev--lock   { background: var(--chip-lock-bg); color: var(--chip-lock-fg); }
+    .news-src { flex-shrink: 0; font-size: var(--fs-2xs); font-weight: 700; min-width: 44px; text-align: center; padding: 0.0625rem var(--space-2); border-radius: var(--radius-sm); }
+    .news-src--dart { background: var(--chip-demand-bg); color: var(--chip-demand-fg); }
+    .news-src--news { background: var(--chip-news-bg); color: var(--chip-news-fg); }
+    .sd-step { text-align: center; flex: 1 1 0; min-width: 0; }
+    .sd-dot { width: 10px; height: 10px; border-radius: 9999px; margin: 0 auto 4px; background: var(--border); }
+    .sd-dot--done { background: var(--pos); }
+    .sd-dot--now { background: var(--pos); box-shadow: 0 0 0 3px color-mix(in oklch, var(--pos) 25%, transparent); }
+    .sd-line { flex: 0.6 1 0; height: 2px; background: var(--border); margin-bottom: 26px; }
+    .sd-line--done { background: color-mix(in oklch, var(--pos) 45%, transparent); }
     .advanced-viz-host {
       width: 100%;
       min-height: 540px;
@@ -710,7 +766,7 @@
       padding: 0.875rem 1rem;
       background: var(--row-hover);
       border-radius: var(--radius-md);
-      font-size: 0.8125rem;
+      font-size: var(--fs-sm);
       color: var(--muted);
       line-height: 1.6;
       word-break: keep-all;
@@ -742,7 +798,7 @@
       border: 1px solid var(--border);
       background: var(--card);
       color: var(--text);
-      font-size: 0.8125rem;
+      font-size: var(--fs-sm);
       font-weight: 500;
       line-height: 1;
       white-space: nowrap;
@@ -827,27 +883,32 @@
       <div class="text-xxs text-[var(--muted)]">로딩 중…</div>
     </div>
 
-    <!-- Main view nav -->
+    <!-- Main view nav — 4-view IA (오늘 / 종목 / 내 포지션 / 분석) -->
     <nav class="sidebar-nav" aria-label="주 메뉴">
       <div class="sidebar-section-label">화면</div>
-      <button type="button" class="sidebar-menu-item active" id="nav-dashboard" onclick="showView('dashboard')">
-        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h4v6H4V6zM14 4h4a2 2 0 012 2v4h-6V4zM14 14h6v4a2 2 0 01-2 2h-4v-6zM4 14h6v6H6a2 2 0 01-2-2v-4z"/></svg>
-        <span>대시보드</span>
+      <button type="button" class="sidebar-menu-item active" id="nav-dashboard" onclick="showView('today')" title="오늘·이번주 일정 + 시장 + 뉴스">
+        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        <span>오늘</span>
       </button>
-      <button type="button" class="sidebar-menu-item" id="nav-advanced" onclick="showView('advanced')">
+      <button type="button" class="sidebar-menu-item" id="nav-screener" onclick="showView('screener')" title="필터 + IPO 테이블 — 행 클릭 시 종목 상세">
+        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h10M4 18h7m9.5 0l2.5 2.5M21 16a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span>종목</span>
+      </button>
+      <button type="button" class="sidebar-menu-item" id="nav-positions" onclick="showView('positions')" title="참여 종목 · 포트폴리오 · 이때팔걸 (3탭)">
+        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2M3 9a2 2 0 012-2h14a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>
+        <span>내 포지션</span>
+        <span class="sidebar-menu-item__badge" id="participation-badge" style="display:none">0</span>
+        <span class="sidebar-menu-item__badge" id="portfolio-badge" style="display:none">0</span>
+      </button>
+      <button type="button" class="sidebar-menu-item" id="nav-advanced" onclick="showView('analytics')" title="차트 · 백테스팅 · 고급분석 (탭)">
         <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
-        <span>고급 분석</span>
+        <span>분석</span>
       </button>
     </nav>
 
     <!-- Tools -->
     <nav class="sidebar-nav" aria-label="도구">
       <div class="sidebar-section-label">도구</div>
-      <button type="button" class="sidebar-menu-item" onclick="openSidePanel('calendar')" title="청약·상장·락업 D-day">
-        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-        <span>이번주 캘린더</span>
-        <span class="sidebar-menu-item__badge" id="calendar-badge" style="display:none">0</span>
-      </button>
       <button type="button" class="sidebar-menu-item" onclick="openSidePanel('watchlist')" title="즐겨찾기·워치리스트 (localStorage)">
         <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
         <span>즐겨찾기</span>
@@ -856,15 +917,6 @@
       <button type="button" class="sidebar-menu-item" onclick="openSidePanel('calculator')" title="청약 자금 → 예상 배정·실현 수익 시뮬레이션">
         <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
         <span>수익률 계산기</span>
-      </button>
-      <button type="button" class="sidebar-menu-item" onclick="showView('participation')" id="nav-participation" title="우리 회사 참여 종목 분류 + 매수가/매도가/메모 (별도 화면)">
-        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <span>종목 지정</span>
-        <span class="sidebar-menu-item__badge" id="participation-badge" style="display:none">0</span>
-      </button>
-      <button type="button" class="sidebar-menu-item" onclick="showView('regret')" id="nav-regret" title="참여 종목 매도단가 vs 실시간/특정시점 시세 비교 (별도 화면)">
-        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3v3l2 2"/></svg>
-        <span>이때팔걸!</span>
       </button>
       <button type="button" class="sidebar-menu-item" onclick="openSidePanel('underwriter')" title="주관사별 첫날·6M 평균 수익률 (베이지안 축소)">
         <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
@@ -877,11 +929,6 @@
       <button type="button" class="sidebar-menu-item" onclick="copyShareUrl()" title="현재 필터 상태 URL 복사">
         <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 015.656 0l1.414 1.414a4 4 0 010 5.656l-3.535 3.535a4 4 0 01-5.657 0l-1.414-1.414m-1.414-7.07a4 4 0 010-5.657L12.414 3.1a4 4 0 015.657 0l1.414 1.414a4 4 0 010 5.657"/></svg>
         <span>URL 공유</span>
-      </button>
-      <button type="button" class="sidebar-menu-item" onclick="showView('portfolio')" id="nav-portfolio" title="보유 종목 → 실시간 평가손익 (KIS API, 별도 화면)">
-        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 14l4-4 4 4 6-6"/></svg>
-        <span>포트폴리오</span>
-        <span class="sidebar-menu-item__badge" id="portfolio-badge" style="display:none">0</span>
       </button>
       <button type="button" class="sidebar-menu-item" onclick="openSidePanel('data')" title="마지막 추출 시각 + Export">
         <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -1012,24 +1059,141 @@
           <span>비교 <span id="compare-count" class="text-xxs ml-0.5">(0)</span></span>
         </button>
 
-        <!-- 고급 분석 (라벨 단축, outline) -->
-        <button onclick="showAdvancedAnalysis()" type="button" class="header-tool outline" title="고급 분석 (Parallel Coordinates + 3D PoC)">
-          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-          </svg>
-          <span>고급 분석</span>
-        </button>
-
-        <!-- JSON 로드 -->
-        <label class="header-tool" title="ipo-recent.json 수동 업로드" tabindex="0">
+        <!-- JSON 로드 (label→button: 키보드 Enter/Space 안정 동작, F-05) -->
+        <button type="button" class="header-tool" title="ipo-recent.json 수동 업로드"
+                onclick="document.getElementById('json-upload-input').click()">
           <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M17 8l-5-5m0 0L7 8m5-5v12" />
           </svg>
           <span>JSON</span>
-          <input type="file" accept=".json" class="hidden" onchange="loadUserJSON(event)">
-        </label>
+        </button>
+        <input id="json-upload-input" type="file" accept=".json" class="hidden" onchange="loadUserJSON(event)">
       </div>
     </header>
+
+    <!-- Market Hero (대시보드 상단 큰 카드) — KOSPI/KOSDAQ 실시간 + 미니 sparkline -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4" id="market-hero">
+      <div class="card p-4 overflow-hidden" id="market-hero-kospi">
+        <div class="flex items-baseline justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold" style="color: var(--market-kospi-fg)">KOSPI</span>
+            <span class="text-xxs text-[var(--muted)]" id="mh-kospi-time">—</span>
+          </div>
+          <div class="text-xxs text-[var(--muted)]">실시간 (KIS · 5분 캐시)</div>
+        </div>
+        <div class="flex items-end justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-2xl font-bold tabular-nums" id="mh-kospi-value">—</div>
+            <div class="text-sm tabular-nums mt-0.5" id="mh-kospi-change">—</div>
+          </div>
+          <div class="flex-shrink-0" style="width:140px;height:44px;overflow:hidden">
+            <canvas id="mh-kospi-spark" width="140" height="44" style="display:block;max-width:140px;max-height:44px"></canvas>
+          </div>
+        </div>
+        <div class="text-xxs text-[var(--muted)] mt-2 tabular-nums" id="mh-kospi-meta">—</div>
+        <!-- KRX 시장 투자자별 매매동향 (외인/기관/개인) — KRX OpenAPI 가용 시 표시 -->
+        <div class="text-xxs mt-1.5 tabular-nums hidden flex flex-wrap gap-x-2" id="mh-kospi-investor">—</div>
+      </div>
+      <div class="card p-4 overflow-hidden" id="market-hero-kosdaq">
+        <div class="flex items-baseline justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold" style="color: var(--market-kosdaq-fg)">KOSDAQ</span>
+            <span class="text-xxs text-[var(--muted)]" id="mh-kosdaq-time">—</span>
+          </div>
+          <div class="text-xxs text-[var(--muted)]">실시간 (KIS · 5분 캐시)</div>
+        </div>
+        <div class="flex items-end justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-2xl font-bold tabular-nums" id="mh-kosdaq-value">—</div>
+            <div class="text-sm tabular-nums mt-0.5" id="mh-kosdaq-change">—</div>
+          </div>
+          <div class="flex-shrink-0" style="width:140px;height:44px;overflow:hidden">
+            <canvas id="mh-kosdaq-spark" width="140" height="44" style="display:block;max-width:140px;max-height:44px"></canvas>
+          </div>
+        </div>
+        <div class="text-xxs text-[var(--muted)] mt-2 tabular-nums" id="mh-kosdaq-meta">—</div>
+        <div class="text-xxs mt-1.5 tabular-nums hidden flex flex-wrap gap-x-2" id="mh-kosdaq-investor">—</div>
+      </div>
+    </div>
+
+    <!-- 오늘 보드 — 파이프라인 칩 + D-day 3버킷 (KIND /api/ipo/schedule + 내부 데이터) -->
+    <div class="card p-5 mb-4" id="today-board-card">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <div class="section-title mb-0">오늘 · 이번 주 일정</div>
+          <div class="text-xxs text-[var(--muted)] mt-0.5" style="word-break:keep-all">수요예측 → 청약 → 상장 → 락업 해제 — 외부 일정 + 내부 데이터 통합</div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap" id="pipeline-chips" aria-label="공모주 파이프라인 단계별 종목 수"></div>
+      </div>
+      <div id="today-board-body" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="text-xxs text-[var(--muted)]">일정 로딩 중…</div>
+      </div>
+      <div id="today-positions-strip" class="hidden mt-3 pt-3 border-t border-[var(--border)] text-xs flex items-center gap-3 flex-wrap"></div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6" id="kpi-cards">
+      <!-- Populated by JS -->
+    </div>
+
+    <!-- 뉴스 · 공시 피드 (Phase 3) — DART list + 한경 RSS, serve.py 프록시 -->
+    <div class="card p-5 mb-6" id="news-feed-card">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="section-title mb-0">뉴스 · 공시</div>
+        <div class="flex items-center gap-1.5" role="group" aria-label="뉴스 피드 출처 필터">
+          <button type="button" class="filter-chip active" data-news-filter="all" onclick="setNewsFilter('all')" aria-pressed="true">전체</button>
+          <button type="button" class="filter-chip" data-news-filter="dart" onclick="setNewsFilter('dart')" aria-pressed="false">공시</button>
+          <button type="button" class="filter-chip" data-news-filter="news" onclick="setNewsFilter('news')" aria-pressed="false">뉴스</button>
+          <button type="button" class="filter-chip" onclick="renderNewsFeed(true)" title="피드 새로고침" aria-label="뉴스 피드 새로고침">↻</button>
+        </div>
+      </div>
+      <div id="news-feed-body" class="text-sm"><div class="text-xxs text-[var(--muted)]">로딩 중…</div></div>
+    </div>
+
+    <!-- 락업 만료 캘린더 (A2) — listingDate + 6개월 (한국 IPO 표준) 기준 D-day -->
+    <div class="card p-5 mb-6" id="lockup-calendar-card">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <div class="section-title mb-0">락업 만료 임박</div>
+          <div class="text-xxs text-[var(--muted)] mt-0.5" style="word-break:keep-all">
+            의무보유확약 6개월 기준 D-day · 임박 종목 매물 출회 압력 사전 인지
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="락업 만료 범위 선택">
+          <button type="button" class="filter-chip active" data-lockup-window="15" onclick="setLockupWindow(15)" role="tab">15일 이내</button>
+          <button type="button" class="filter-chip" data-lockup-window="30" onclick="setLockupWindow(30)" role="tab">1개월 이내</button>
+          <button type="button" class="filter-chip" data-lockup-window="90" onclick="setLockupWindow(90)" role="tab">3개월 이내</button>
+          <button type="button" class="filter-chip" data-lockup-window="180" onclick="setLockupWindow(180)" role="tab">6개월 이내</button>
+        </div>
+      </div>
+      <div id="lockup-calendar-body" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
+      <div id="lockup-calendar-empty" class="hidden text-sm text-[var(--muted)] text-center py-6" style="word-break:keep-all">
+        해당 범위에 락업 만료 예정 종목이 없습니다. 필터를 조정하거나 D-90/D-365 범위로 확장해보세요.
+      </div>
+    </div>
+
+    <footer class="mt-8 text-xxs text-[var(--muted)] flex flex-wrap gap-x-4 gap-y-1">
+      <span>참고: 동적차트 시트의 최근 N건 조회, 기간/시장/업종/수익률 구간 분류, 고가달성기간·유통가능금액·경쟁률 메트릭을 기반으로 재구성.</span>
+      <span class="hidden md:inline">·</span>
+      <span>샘플 데이터 85건. 실제 전체 데이터는 사용자의 xlsx를 JSON으로 변환하여 로드하세요.</span>
+    </footer>
+    </div> <!-- /#dashboard-root -->
+
+    <!-- ============================================================
+         #screener-root — 종목 스크리너 (#/screener)
+         필터 + Top/Bottom + 테이블. 행 클릭 → 종목 상세 (#/stock/:id), ⋯ → 빠른 모달
+         ============================================================ -->
+    <div id="screener-root" class="hidden-view">
+      <header class="flex items-end justify-between mb-6 gap-3 flex-wrap">
+        <div>
+          <h1 class="heading-1">종목 스크리너</h1>
+          <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">필터 → 테이블 → 행 클릭으로 종목 상세. 필터 상태는 오늘/분석 화면에도 동일 적용</p>
+        </div>
+        <button type="button" class="header-tool" onclick="showView('today')">
+          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          <span>오늘 화면으로</span>
+        </button>
+      </header>
 
     <!-- Filters -->
     <div class="card p-5 mb-6">
@@ -1077,7 +1241,7 @@
         <!-- 검색 + 옵션 -->
         <div class="lg:col-span-2">
           <div class="kpi-label mb-2">종목 검색</div>
-          <input type="text" id="search-input" placeholder="종목명 입력" 
+          <input type="text" id="search-input" placeholder="종목명 입력"
                  class="w-full text-sm px-3 py-2 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring"
                  oninput="debouncedFilter()">
           <div class="mt-2 flex items-center gap-2 text-xs">
@@ -1110,164 +1274,41 @@
           <div class="font-mono text-sm tabular-nums" id="return-range-label">-100% ~ +300%</div>
         </div>
         <div class="flex items-center gap-3 px-1">
-          <input type="range" id="return-min" min="-100" max="300" step="5" value="-100" 
+          <input type="range" id="return-min" min="-100" max="300" step="5" value="-100"
                  class="w-full accent-[var(--accent)]" oninput="updateReturnRangeLabel(); debouncedFilter()">
-          <input type="range" id="return-max" min="-100" max="300" step="5" value="300" 
+          <input type="range" id="return-max" min="-100" max="300" step="5" value="300"
                  class="w-full accent-[var(--accent)]" oninput="updateReturnRangeLabel(); debouncedFilter()">
         </div>
       </div>
-    </div>
 
-    <!-- Market Hero (대시보드 상단 큰 카드) — KOSPI/KOSDAQ 실시간 + 미니 sparkline -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4" id="market-hero">
-      <div class="card p-4 overflow-hidden" id="market-hero-kospi">
-        <div class="flex items-baseline justify-between mb-2">
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-bold" style="color: var(--market-kospi-fg)">KOSPI</span>
-            <span class="text-xxs text-[var(--muted)]" id="mh-kospi-time">—</span>
-          </div>
-          <div class="text-xxs text-[var(--muted)]">실시간 (KIS · 5분 캐시)</div>
-        </div>
-        <div class="flex items-end justify-between gap-3">
-          <div class="min-w-0">
-            <div class="text-2xl font-bold tabular-nums" id="mh-kospi-value">—</div>
-            <div class="text-sm tabular-nums mt-0.5" id="mh-kospi-change">—</div>
-          </div>
-          <div class="flex-shrink-0" style="width:140px;height:44px;overflow:hidden">
-            <canvas id="mh-kospi-spark" width="140" height="44" style="display:block;max-width:140px;max-height:44px"></canvas>
-          </div>
-        </div>
-        <div class="text-xxs text-[var(--muted)] mt-2 tabular-nums" id="mh-kospi-meta">—</div>
-        <!-- KRX 시장 투자자별 매매동향 (외인/기관/개인) — KRX OpenAPI 가용 시 표시 -->
-        <div class="text-xxs mt-1.5 tabular-nums hidden flex flex-wrap gap-x-2" id="mh-kospi-investor">—</div>
-      </div>
-      <div class="card p-4 overflow-hidden" id="market-hero-kosdaq">
-        <div class="flex items-baseline justify-between mb-2">
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-bold" style="color: var(--market-kosdaq-fg)">KOSDAQ</span>
-            <span class="text-xxs text-[var(--muted)]" id="mh-kosdaq-time">—</span>
-          </div>
-          <div class="text-xxs text-[var(--muted)]">실시간 (KIS · 5분 캐시)</div>
-        </div>
-        <div class="flex items-end justify-between gap-3">
-          <div class="min-w-0">
-            <div class="text-2xl font-bold tabular-nums" id="mh-kosdaq-value">—</div>
-            <div class="text-sm tabular-nums mt-0.5" id="mh-kosdaq-change">—</div>
-          </div>
-          <div class="flex-shrink-0" style="width:140px;height:44px;overflow:hidden">
-            <canvas id="mh-kosdaq-spark" width="140" height="44" style="display:block;max-width:140px;max-height:44px"></canvas>
-          </div>
-        </div>
-        <div class="text-xxs text-[var(--muted)] mt-2 tabular-nums" id="mh-kosdaq-meta">—</div>
-        <div class="text-xxs mt-1.5 tabular-nums hidden flex flex-wrap gap-x-2" id="mh-kosdaq-investor">—</div>
-      </div>
-    </div>
-
-    <!-- KPI Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6" id="kpi-cards">
-      <!-- Populated by JS -->
-    </div>
-
-    <!-- 락업 만료 캘린더 (A2) — listingDate + 6개월 (한국 IPO 표준) 기준 D-day -->
-    <div class="card p-5 mb-6" id="lockup-calendar-card">
-      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <!-- AI 점수 · 상장 상태 · 빠른 프리셋 (필터링 확장) -->
+      <div class="mt-5 pt-4 border-t border-[var(--border)] grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <div class="section-title mb-0">락업 만료 임박</div>
-          <div class="text-xxs text-[var(--muted)] mt-0.5" style="word-break:keep-all">
-            의무보유확약 6개월 기준 D-day · 임박 종목 매물 출회 압력 사전 인지
+          <div class="kpi-label mb-2">AI 점수 최소</div>
+          <div class="flex flex-wrap gap-1.5" id="ai-score-filters">
+            <button type="button" class="filter-chip active" data-ai="0" onclick="setMinAiScore(0)">전체</button>
+            <button type="button" class="filter-chip" data-ai="60" onclick="setMinAiScore(60)">60+</button>
+            <button type="button" class="filter-chip" data-ai="70" onclick="setMinAiScore(70)">70+</button>
+            <button type="button" class="filter-chip" data-ai="80" onclick="setMinAiScore(80)">80+</button>
           </div>
         </div>
-        <div class="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="락업 만료 범위 선택">
-          <button type="button" class="filter-chip active" data-lockup-window="15" onclick="setLockupWindow(15)" role="tab">15일 이내</button>
-          <button type="button" class="filter-chip" data-lockup-window="30" onclick="setLockupWindow(30)" role="tab">1개월 이내</button>
-          <button type="button" class="filter-chip" data-lockup-window="90" onclick="setLockupWindow(90)" role="tab">3개월 이내</button>
-          <button type="button" class="filter-chip" data-lockup-window="180" onclick="setLockupWindow(180)" role="tab">6개월 이내</button>
-        </div>
-      </div>
-      <div id="lockup-calendar-body" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
-      <div id="lockup-calendar-empty" class="hidden text-sm text-[var(--muted)] text-center py-6" style="word-break:keep-all">
-        해당 범위에 락업 만료 예정 종목이 없습니다. 필터를 조정하거나 D-90/D-365 범위로 확장해보세요.
-      </div>
-    </div>
-
-    <!-- 백테스팅 워크벤치 (B1) — 룰셋(매도시점 + 최소 락업/경쟁률) 적용 후 통계 산출 -->
-    <div class="card p-5 mb-6" id="backtest-card">
-      <div class="flex items-start justify-between mb-4 flex-wrap gap-2">
-        <div class="min-w-0">
-          <div class="section-title mb-0">백테스팅 워크벤치</div>
-          <div class="text-xxs text-[var(--muted)] mt-0.5" style="word-break:keep-all">
-            현재 메인 필터 적용 결과 + 추가 룰(매도 시점·최소 락업·최소 경쟁률) → 평균/중앙값/승률/표준편차/베스트·워스트
+        <div>
+          <div class="kpi-label mb-2">상장 상태</div>
+          <div class="flex flex-wrap gap-1.5" id="listing-status-filters">
+            <button type="button" class="filter-chip active" data-status="all" onclick="setListingStatus('all')">전체</button>
+            <button type="button" class="filter-chip" data-status="upcoming" onclick="setListingStatus('upcoming')">예정</button>
+            <button type="button" class="filter-chip" data-status="listed" onclick="setListingStatus('listed')">상장됨</button>
           </div>
         </div>
-        <div class="text-xxs text-[var(--muted)]" id="bt-universe-info" style="word-break:keep-all">유니버스: 0건</div>
-      </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <!-- 룰셋 컨트롤 -->
-        <div class="lg:col-span-1 space-y-3">
-          <div>
-            <label class="kpi-label block mb-1.5" for="bt-exit">매도 시점</label>
-            <select id="bt-exit"
-                    class="w-full text-sm px-3 py-2 rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--text)] focus-ring"
-                    onchange="runBacktest()">
-              <option value="firstDayReturn">시초매도 (당일)</option>
-              <option value="firstDayCloseReturn">종가매도 (당일)</option>
-              <option value="highReturn" selected>고가매도 (당일)</option>
-              <option value="return1M">1개월 후 매도</option>
-              <option value="return3M">3개월 후 매도</option>
-              <option value="return6M">6개월 후 매도</option>
-            </select>
+        <div>
+          <div class="kpi-label mb-2">빠른 프리셋</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" class="filter-chip" onclick="applyFilterPreset('ai')" title="AI 점수 80 이상">AI 우량</button>
+            <button type="button" class="filter-chip" onclick="applyFilterPreset('upcoming')" title="상장 예정 종목">예정 IPO</button>
+            <button type="button" class="filter-chip" onclick="applyFilterPreset('recent')" title="최근 1년 상장">최근 상장</button>
+            <button type="button" class="filter-chip" onclick="applyFilterPreset('hot')" title="AI 70+ 및 첫날 수익 0% 이상">강세 후보</button>
           </div>
-          <div>
-            <label class="kpi-label block mb-1.5" for="bt-min-lockup">최소 락업 비율 (%)</label>
-            <input type="range" id="bt-min-lockup" min="0" max="100" value="0" step="5"
-                   class="w-full accent-[var(--accent)]"
-                   oninput="document.getElementById('bt-min-lockup-label').textContent=this.value; debouncedRunBacktest()">
-            <div class="text-xxs text-[var(--muted)] mt-0.5"><span id="bt-min-lockup-label" class="tabular-nums">0</span>% 이상</div>
-          </div>
-          <div>
-            <label class="kpi-label block mb-1.5" for="bt-min-comp">최소 개인 경쟁률 (:1)</label>
-            <input type="range" id="bt-min-comp" min="0" max="2000" value="0" step="50"
-                   class="w-full accent-[var(--accent)]"
-                   oninput="document.getElementById('bt-min-comp-label').textContent=this.value; debouncedRunBacktest()">
-            <div class="text-xxs text-[var(--muted)] mt-0.5"><span id="bt-min-comp-label" class="tabular-nums">0</span>:1 이상</div>
-          </div>
-          <button type="button" class="header-tool w-full justify-center" onclick="runBacktest()" title="현재 룰셋 즉시 실행">
-            <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <span>실행</span>
-          </button>
         </div>
-
-        <!-- 결과 -->
-        <div class="lg:col-span-2">
-          <div id="bt-results" aria-live="polite"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Charts -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-      <div class="card p-5">
-        <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-          <div class="section-title mb-0">상장 월별 평균 첫날 수익률</div>
-          <div class="text-xxs text-[var(--muted)]" style="word-break:keep-all">드래그로 구간 선택 → 메인 필터 자동 적용</div>
-        </div>
-        <div class="chart-container"><canvas id="chart-monthly" role="img" aria-label="상장 월별 평균 첫날 수익률 막대 차트 (최근 18개월). 정확한 수치는 표 참조."></canvas></div>
-      </div>
-      <div class="card p-5">
-        <div class="section-title">첫날 수익률 분포</div>
-        <div class="chart-container"><canvas id="chart-distribution" role="img" aria-label="첫날 수익률 구간별 종목 수 분포 히스토그램"></canvas></div>
-      </div>
-      <div class="card p-5">
-        <div class="section-title">기관 경쟁률 × 첫날 수익률 (Scatter)</div>
-        <div class="chart-container"><canvas id="chart-scatter" role="img" aria-label="기관 경쟁률(x축)과 첫날 수익률(y축) 산점도"></canvas></div>
-      </div>
-      <div class="card p-5">
-        <div class="section-title">업종별 평균 첫날 수익률 (상위 8)</div>
-        <div class="chart-container"><canvas id="chart-sector" role="img" aria-label="업종별 평균 첫날 수익률 상위 8개 막대 차트"></canvas></div>
       </div>
     </div>
 
@@ -1295,7 +1336,7 @@
       <div class="xl:col-span-8 card p-5">
         <div class="flex items-center justify-between mb-3">
           <div class="section-title mb-0">상장 종목 목록 <span id="table-count" class="font-normal text-[var(--muted)] text-xs ml-2">(필터 적용됨)</span></div>
-          <div class="text-xs text-[var(--muted)]">클릭하여 상세 · 정렬 가능</div>
+          <div class="text-xs text-[var(--muted)]">행 클릭 → 종목 상세 · ⋯ → 빠른 보기</div>
         </div>
         <div class="overflow-x-auto rounded-lg border border-[var(--border)]">
           <table class="data-table w-full min-w-[820px]">
@@ -1327,33 +1368,36 @@
         </div>
       </div>
     </div>
-
-    <footer class="mt-8 text-xxs text-[var(--muted)] flex flex-wrap gap-x-4 gap-y-1">
-      <span>참고: 동적차트 시트의 최근 N건 조회, 기간/시장/업종/수익률 구간 분류, 고가달성기간·유통가능금액·경쟁률 메트릭을 기반으로 재구성.</span>
-      <span class="hidden md:inline">·</span>
-      <span>샘플 데이터 85건. 실제 전체 데이터는 사용자의 xlsx를 JSON으로 변환하여 로드하세요.</span>
-    </footer>
-    </div> <!-- /#dashboard-root -->
+    </div> <!-- /#screener-root -->
 
     <!-- ============================================================
-         #participation-root — 종목 지정 별도 view (#/participation)
-         우리 회사 참여 종목 분류 + 매수가/매도가/메모 — 사이드 패널보다 넓은 화면
+         #positions-root — 내 포지션 (#/positions) : 참여 종목 / 포트폴리오 / 이때팔걸 3탭 통합
          ============================================================ -->
-    <div id="participation-root" class="hidden-view">
-      <header class="flex items-end justify-between mb-6 gap-3 flex-wrap">
+    <div id="positions-root" class="hidden-view">
+      <header class="flex items-end justify-between mb-4 gap-3 flex-wrap">
         <div>
-          <h1 class="heading-1">종목 지정</h1>
-          <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">
-            우리 회사 청약/배정 참여 종목을 등록 — 매수가·매도가·메모 저장 후 모든 분석에서 <strong>"참여 종목만"</strong> 필터 적용 + <strong>"이때팔걸"</strong> 비교 자동 활성
-          </p>
+          <h1 class="heading-1">내 포지션</h1>
+          <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">참여 종목 등록 → 실시간 평가 → 매도 타이밍 복기까지 한 화면에서</p>
         </div>
-        <button type="button" class="header-tool" onclick="showView('dashboard')">
-          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-          </svg>
-          <span>대시보드로</span>
+        <button type="button" class="header-tool" onclick="showView('today')">
+          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          <span>오늘 화면으로</span>
         </button>
       </header>
+      <div class="advanced-tabs" role="tablist" aria-label="내 포지션 탭">
+        <button type="button" class="advanced-tab active" data-pos-tab="participation" onclick="setPositionsTab('participation')" role="tab" aria-selected="true">참여 종목</button>
+        <button type="button" class="advanced-tab" data-pos-tab="portfolio" onclick="setPositionsTab('portfolio')" role="tab" aria-selected="false">포트폴리오</button>
+        <button type="button" class="advanced-tab" data-pos-tab="regret" onclick="setPositionsTab('regret')" role="tab" aria-selected="false">이때팔걸!</button>
+      </div>
+
+    <!-- ============================================================
+         #participation-root — 종목 지정 (내 포지션 > 참여 종목 탭)
+         우리 회사 참여 종목 분류 + 매수가/매도가/메모
+         ============================================================ -->
+    <div id="participation-root" class="hidden-view">
+      <p class="text-sm text-[var(--muted)] mb-4" style="word-break:keep-all">
+        우리 회사 청약/배정 참여 종목을 등록 — 매수가·매도가·메모 저장 후 모든 분석에서 <strong>"참여 종목만"</strong> 필터 적용 + <strong>"이때팔걸"</strong> 비교 자동 활성
+      </p>
 
       <!-- 필터 + 검색 + 정렬 (sticky 상단) -->
       <div class="card p-4 mb-4 sticky" style="top: 0; z-index: 10;">
@@ -1407,16 +1451,7 @@
          #portfolio-root — 포트폴리오 추적기 별도 view (#/portfolio)
          ============================================================ -->
     <div id="portfolio-root" class="hidden-view">
-      <header class="flex items-end justify-between mb-6 gap-3 flex-wrap">
-        <div>
-          <h1 class="heading-1">포트폴리오 추적기</h1>
-          <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">보유 종목 + KIS 실시간 시세 → 평가손익. 키는 서버 .env 에만 저장 (브라우저 노출 X)</p>
-        </div>
-        <button type="button" class="header-tool" onclick="showView('dashboard')">
-          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-          <span>대시보드로</span>
-        </button>
-      </header>
+      <p class="text-sm text-[var(--muted)] mb-4" style="word-break:keep-all">보유 종목 + KIS 실시간 시세 → 평가손익. 키는 서버 .env 에만 저장 (브라우저 노출 X)</p>
       <div class="card p-5 max-w-3xl"><div id="portfolio-view-body"></div></div>
     </div>
 
@@ -1424,27 +1459,19 @@
          #regret-root — 이때팔걸! 별도 view (#/regret)
          ============================================================ -->
     <div id="regret-root" class="hidden-view">
-      <header class="flex items-end justify-between mb-6 gap-3 flex-wrap">
-        <div>
-          <h1 class="heading-1">이때팔걸! <span class="text-sm font-normal text-[var(--muted)]">매도 시점 비교 분석</span></h1>
-          <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">참여 종목의 매도단가 vs 실시간/특정시점/최고가 비교 → 매도 타이밍 회한 분석</p>
-        </div>
-        <button type="button" class="header-tool" onclick="showView('dashboard')">
-          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-          <span>대시보드로</span>
-        </button>
-      </header>
+      <p class="text-sm text-[var(--muted)] mb-4" style="word-break:keep-all">참여 종목의 매도단가 vs 실시간/특정시점/최고가 비교 → 매도 타이밍 회한 분석</p>
       <div class="card p-5 max-w-3xl"><div id="regret-view-body"></div></div>
     </div>
+    </div> <!-- /#positions-root -->
 
     <!-- ============================================================
-         #advanced-root — 고급 분석 별도 view (사이드바 메뉴로 진입, hash #/advanced)
-         탭: 히트맵 / 상관 매트릭스 / Violin 분포 / Parallel v2
+         #advanced-root — 분석 view (#/analytics, 레거시 #/advanced)
+         탭: 개요(차트 4종) / 백테스팅 / 히트맵 / 상관 / 밴드 / Parallel / 락업해제후
          ============================================================ -->
     <div id="advanced-root" class="hidden-view">
       <header class="flex items-end justify-between mb-6 gap-3 flex-wrap">
         <div>
-          <h1 class="heading-1">고급 분석</h1>
+          <h1 class="heading-1">분석</h1>
           <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">
             메인 필터(<span id="adv-filter-summary" class="font-medium text-[var(--text)]">전체</span>) 기준 다차원 분석 · <span id="adv-record-count">0건</span>
           </p>
@@ -1453,22 +1480,117 @@
           <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
           </svg>
-          <span>대시보드로</span>
+          <span>오늘 화면으로</span>
         </button>
       </header>
 
       <!-- 탭바 -->
       <div class="advanced-tabs" role="tablist">
-        <button type="button" class="advanced-tab active" data-adv-tab="heatmap" onclick="setAdvancedTab('heatmap')" role="tab">📊 히트맵 (업종 × 분기)</button>
-        <button type="button" class="advanced-tab" data-adv-tab="corr" onclick="setAdvancedTab('corr')" role="tab">🔢 상관 매트릭스</button>
-        <button type="button" class="advanced-tab" data-adv-tab="violin" onclick="setAdvancedTab('violin')" role="tab">🎻 분포 비교 (Violin)</button>
-        <button type="button" class="advanced-tab" data-adv-tab="parallel" onclick="setAdvancedTab('parallel')" role="tab">🌐 Parallel Coordinates</button>
-        <button type="button" class="advanced-tab" data-adv-tab="band" onclick="setAdvancedTab('band')" role="tab">📏 밴드 vs 확정가</button>
-        <button type="button" class="advanced-tab" data-adv-tab="lockup" onclick="setAdvancedTab('lockup')" role="tab">🔓 락업 해제 후 가격</button>
+        <button type="button" class="advanced-tab active" data-adv-tab="overview" onclick="setAdvancedTab('overview')" role="tab" aria-selected="true">개요 (차트 4종)</button>
+        <button type="button" class="advanced-tab" data-adv-tab="backtest" onclick="setAdvancedTab('backtest')" role="tab" aria-selected="false">백테스팅</button>
+        <button type="button" class="advanced-tab" data-adv-tab="heatmap" onclick="setAdvancedTab('heatmap')" role="tab" aria-selected="false">히트맵 (업종 × 분기)</button>
+        <button type="button" class="advanced-tab" data-adv-tab="corr" onclick="setAdvancedTab('corr')" role="tab" aria-selected="false">상관 매트릭스</button>
+        <button type="button" class="advanced-tab" data-adv-tab="band" onclick="setAdvancedTab('band')" role="tab" aria-selected="false">밴드 vs 확정가</button>
+        <button type="button" class="advanced-tab" data-adv-tab="parallel" onclick="setAdvancedTab('parallel')" role="tab" aria-selected="false">Parallel</button>
+        <button type="button" class="advanced-tab" data-adv-tab="lockup" onclick="setAdvancedTab('lockup')" role="tab" aria-selected="false">락업 해제 후</button>
       </div>
 
+      <!-- 패널 0: 개요 — 대시보드에서 이관된 차트 4종 (수익률 분포가 기존 Violin 탭을 흡수) -->
+      <section class="advanced-panel active" data-adv-panel="overview">
+        <div class="flex items-center gap-2 mb-3 flex-wrap">
+          <label class="kpi-label" for="chart-metric-select" style="margin:0">차트 지표</label>
+          <select id="chart-metric-select" class="text-sm px-2.5 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring" onchange="setChartMetric(this.value)">
+            <option value="firstDayReturn" selected>첫날 수익률</option>
+            <option value="highReturn">고가 수익률</option>
+            <option value="return6M">6개월 수익률</option>
+          </select>
+          <span class="text-xxs text-[var(--muted)]" style="word-break:keep-all">월별·분포·업종 차트에 적용 (현재 필터 결과 기준)</span>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="card p-5">
+            <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
+              <div class="section-title mb-0">상장 월별 평균 수익률</div>
+              <div class="text-xxs text-[var(--muted)]" style="word-break:keep-all">드래그로 구간 선택 → 메인 필터 자동 적용</div>
+            </div>
+            <div class="chart-container"><canvas id="chart-monthly" role="img" aria-label="상장 월별 평균 첫날 수익률 막대 차트 (최근 18개월). 정확한 수치는 표 참조."></canvas></div>
+          </div>
+          <div class="card p-5">
+            <div class="section-title">수익률 분포</div>
+            <div class="chart-container"><canvas id="chart-distribution" role="img" aria-label="선택 지표 구간별 종목 수 분포 히스토그램"></canvas></div>
+          </div>
+          <div class="card p-5">
+            <div class="section-title">기관 경쟁률 × 첫날 수익률 (Scatter)</div>
+            <div class="chart-container"><canvas id="chart-scatter" role="img" aria-label="기관 경쟁률(x축)과 첫날 수익률(y축) 산점도"></canvas></div>
+          </div>
+          <div class="card p-5">
+            <div class="section-title">업종별 평균 수익률 (상위 8)</div>
+            <div class="chart-container"><canvas id="chart-sector" role="img" aria-label="업종별 평균 수익률 상위 8개 막대 차트"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 패널 0-b: 백테스팅 워크벤치 (대시보드에서 이관) -->
+      <section class="advanced-panel" data-adv-panel="backtest">
+        <div class="card p-5" id="backtest-card">
+          <div class="flex items-start justify-between mb-4 flex-wrap gap-2">
+            <div class="min-w-0">
+              <div class="section-title mb-0">백테스팅 워크벤치</div>
+              <div class="text-xxs text-[var(--muted)] mt-0.5" style="word-break:keep-all">
+                현재 메인 필터 적용 결과 + 추가 룰(매도 시점·최소 락업·최소 경쟁률) → 평균/중앙값/승률/표준편차/베스트·워스트
+              </div>
+            </div>
+            <div class="text-xxs text-[var(--muted)]" id="bt-universe-info" style="word-break:keep-all">유니버스: 0건</div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <!-- 룰셋 컨트롤 -->
+            <div class="lg:col-span-1 space-y-3">
+              <div>
+                <label class="kpi-label block mb-1.5" for="bt-exit">매도 시점</label>
+                <select id="bt-exit"
+                        class="w-full text-sm px-3 py-2 rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--text)] focus-ring"
+                        onchange="runBacktest()">
+                  <option value="firstDayReturn">시초매도 (당일)</option>
+                  <option value="firstDayCloseReturn">종가매도 (당일)</option>
+                  <option value="highReturn" selected>고가매도 (당일)</option>
+                  <option value="return1M">1개월 후 매도</option>
+                  <option value="return3M">3개월 후 매도</option>
+                  <option value="return6M">6개월 후 매도</option>
+                </select>
+              </div>
+              <div>
+                <label class="kpi-label block mb-1.5" for="bt-min-lockup">최소 락업 비율 (%)</label>
+                <input type="range" id="bt-min-lockup" min="0" max="100" value="0" step="5"
+                       class="w-full accent-[var(--accent)]"
+                       oninput="document.getElementById('bt-min-lockup-label').textContent=this.value; debouncedRunBacktest()">
+                <div class="text-xxs text-[var(--muted)] mt-0.5"><span id="bt-min-lockup-label" class="tabular-nums">0</span>% 이상</div>
+              </div>
+              <div>
+                <label class="kpi-label block mb-1.5" for="bt-min-comp">최소 개인 경쟁률 (:1)</label>
+                <input type="range" id="bt-min-comp" min="0" max="2000" value="0" step="50"
+                       class="w-full accent-[var(--accent)]"
+                       oninput="document.getElementById('bt-min-comp-label').textContent=this.value; debouncedRunBacktest()">
+                <div class="text-xxs text-[var(--muted)] mt-0.5"><span id="bt-min-comp-label" class="tabular-nums">0</span>:1 이상</div>
+              </div>
+              <button type="button" class="header-tool w-full justify-center" onclick="runBacktest()" title="현재 룰셋 즉시 실행">
+                <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span>실행</span>
+              </button>
+            </div>
+
+            <!-- 결과 -->
+            <div class="lg:col-span-2">
+              <div id="bt-results" aria-live="polite"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 패널 1: 히트맵 -->
-      <section class="advanced-panel active card p-5" data-adv-panel="heatmap">
+      <section class="advanced-panel card p-5" data-adv-panel="heatmap">
         <div class="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
           <div class="section-title mb-0">업종 × 분기 평균 첫날 수익률</div>
           <div class="flex items-center gap-2">
@@ -1497,33 +1619,6 @@
         <div class="advanced-viz-host" id="adv-corr-host"></div>
         <div class="advanced-insight" id="adv-corr-insight">
           7 메트릭 pairwise 상관계수 r. 절댓값 |r|≥0.3 의미 있음 일반 기준.
-        </div>
-      </section>
-
-      <!-- 패널 3: Violin 분포 비교 -->
-      <section class="advanced-panel card p-5" data-adv-panel="violin">
-        <div class="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
-          <div class="section-title mb-0">그룹별 분포 비교 (Violin + Box)</div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <label class="text-xs text-[var(--muted)]" for="adv-violin-group">그룹 기준</label>
-            <select id="adv-violin-group" class="text-xs px-2 py-1 rounded border border-[var(--border)] bg-[var(--card)] focus-ring" onchange="renderAdvViolin()">
-              <option value="market" selected>시장 (KOSPI vs KOSDAQ)</option>
-              <option value="upperLimitHit">상한가 달성 여부</option>
-              <option value="lockupBin">락업 분위 (저/중/고)</option>
-              <option value="sizeBin">공모총액 분위 (소/중/대)</option>
-            </select>
-            <label class="text-xs text-[var(--muted)]" for="adv-violin-metric">메트릭</label>
-            <select id="adv-violin-metric" class="text-xs px-2 py-1 rounded border border-[var(--border)] bg-[var(--card)] focus-ring" onchange="renderAdvViolin()">
-              <option value="firstDayReturn" selected>첫날 수익률</option>
-              <option value="highReturn">고가 수익률</option>
-              <option value="return6M">6개월 수익률</option>
-              <option value="competitionRetail">개인 경쟁률</option>
-            </select>
-          </div>
-        </div>
-        <div class="advanced-viz-host" id="adv-violin-host"></div>
-        <div class="advanced-insight" id="adv-violin-insight">
-          그룹 분포의 형태(violin) + 사분위수(box) + 개별 표본(points) 동시 비교.
         </div>
       </section>
 
@@ -1581,6 +1676,24 @@
           축 칩을 클릭하여 표시 차원 토글. 차트 안에서 축을 드래그하면 brushing (즉시 하이라이트).
         </div>
       </section>
+    </div>
+
+  <!-- ============================================================
+       #stock-root — 종목 상세 페이지 (#/stock/:key)
+       가격 · 일정 타임라인 · 뉴스 · 메모를 한 화면에 — 통합 IPO 관리 앵커
+       ============================================================ -->
+    <div id="stock-root" class="hidden-view">
+      <header class="flex items-end justify-between mb-5 gap-3 flex-wrap">
+        <div>
+          <h1 class="heading-1">종목 상세</h1>
+          <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">가격 · 일정 · 뉴스 · 메모 — 통합 IPO 관리 화면</p>
+        </div>
+        <button type="button" class="header-tool" onclick="showView('screener')">
+          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          <span>종목 목록으로</span>
+        </button>
+      </header>
+      <div id="stock-detail-body"></div>
     </div>
 
   <!-- Detail Modal -->
@@ -1772,7 +1885,9 @@
       upperOnly: false,
       returnMin: -100,
       returnMax: 300,
-      strictNewOnly: false
+      strictNewOnly: false,
+      minAiScore: 0,        // AI 점수 최소 필터 (0=전체)
+      listingStatus: 'all'  // all | upcoming(예정) | listed(상장됨)
     };
 
     const ALL_SECTORS = [...new Set(ipoData.map(d => d.sector))].sort();
@@ -1875,6 +1990,8 @@
       if (activeFilters.returnMin !== -100) params.set('rmin', String(activeFilters.returnMin));
       if (activeFilters.returnMax !== 300) params.set('rmax', String(activeFilters.returnMax));
       if (activeFilters.strictNewOnly) params.set('strict', '1');
+      if (activeFilters.minAiScore > 0) params.set('ai', String(activeFilters.minAiScore));
+      if (activeFilters.listingStatus !== 'all') params.set('status', activeFilters.listingStatus);
       const qs = params.toString();
       const newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
       try { history.replaceState(null, '', newUrl); } catch (e) { /* file:// 등에서 SecurityError */ }
@@ -1891,6 +2008,8 @@
         if (p.has('rmin')) activeFilters.returnMin = parseInt(p.get('rmin'), 10);
         if (p.has('rmax')) activeFilters.returnMax = parseInt(p.get('rmax'), 10);
         if (p.has('strict')) activeFilters.strictNewOnly = p.get('strict') === '1';
+        if (p.has('ai')) activeFilters.minAiScore = parseInt(p.get('ai'), 10) || 0;
+        if (p.has('status')) activeFilters.listingStatus = p.get('status');
       } catch (e) { /* ignore */ }
     }
 
@@ -1974,8 +2093,12 @@
       { type: 'cmd', label: '진짜 신규상장(엄격) 토글', hint: '', action: () => toggleStrictNewFilter() },
       { type: 'cmd', label: '테마: 라이트/다크 전환', hint: '단축키 t', action: () => toggleTheme() },
       { type: 'cmd', label: '필터 초기화', hint: '', action: () => resetAllFilters() },
+      { type: 'cmd', label: '화면: 오늘 (일정·뉴스)', hint: '', action: () => showView('today') },
+      { type: 'cmd', label: '화면: 종목 스크리너', hint: '', action: () => showView('screener') },
+      { type: 'cmd', label: '화면: 내 포지션', hint: '', action: () => showView('positions') },
+      { type: 'cmd', label: '화면: 분석 (차트·백테스팅)', hint: '', action: () => showView('analytics') },
       { type: 'cmd', label: 'CSV 내보내기', hint: '', action: () => exportFilteredCSV() },
-      { type: 'cmd', label: '고급 분석 모달 열기', hint: '', action: () => showAdvancedAnalysis() },
+      { type: 'cmd', label: '분석 화면 열기 (차트·백테스팅)', hint: '', action: () => showView('analytics') },
       { type: 'cmd', label: '실시간 데이터 새로고침 (XLSX + DART)', hint: 'serve.py 필요', action: () => refreshDataFromServer() },
       { type: 'cmd', label: '종목 비교 모드 열기 (Radar)', hint: '2개 이상 선택 시', action: () => showCompareModal() },
       { type: 'cmd', label: '비교 목록 초기화', hint: '', action: () => { compareList = []; updateCompareUI(); } },
@@ -2407,7 +2530,7 @@
       const isIn = compareList.some(c => c.id === row.id);
       return `<button type="button" onclick="toggleCompareItem(${row.id})" id="modal-compare-toggle" data-id="${row.id}"
                       class="header-tool ${isIn ? 'primary' : 'outline'}"
-                      style="height: 1.875rem; padding: 0 0.75rem; font-size: 0.75rem; margin-left: 0.5rem; vertical-align: middle;"
+                      style="height: 1.875rem; padding: 0 0.75rem; font-size: var(--fs-xs); margin-left: 0.5rem; vertical-align: middle;"
                       aria-pressed="${isIn}">
         <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true" style="width: 0.75rem; height: 0.75rem;">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isIn ? 'M5 13l4 4L19 7' : 'M12 4v16m8-8H4'}"/>
@@ -2611,8 +2734,8 @@
         title = `DART 증권신고서 직접 열기 (rcpNo ${rcpNo})`;
       } else {
         url = `https://dart.fss.or.kr/dsab007/main.do?textCrpNm=${encodeURIComponent(row.name || '')}&maxResults=15&maxLinks=10&sort=date&series=desc`;
-        label = prominent ? `DART 에서 ${row.name} 검색` : 'DART 검색';
-        title = `DART 에서 "${row.name}" 검색`;
+        label = prominent ? `DART 에서 ${escHtml(row.name)} 검색` : 'DART 검색';
+        title = `DART 에서 "${escHtml(row.name)}" 검색`;
       }
       // DART 톤 — 보라/인디고 계열 (네이버 그린과 시각적 구분)
       const dartStyle = `background: color-mix(in oklch, oklch(0.65 0.18 280) 18%, transparent); color: oklch(0.55 0.20 280); border-color: color-mix(in oklch, oklch(0.65 0.18 280) 45%, transparent);`;
@@ -2633,12 +2756,27 @@
     // ============================================================
     let _marketHeroTimer = null;
     const _marketHeroCharts = { kospi: null, kosdaq: null };
+    // /api/market 공유 캐시 — hero/widget/panel 중복 폴링 통합 (perf). 30s 캐시 + 동시호출 합치기.
+    let _marketCache = { ts: 0, payload: null, inflight: null };
+    async function _getMarket(force = false) {
+      const now = Date.now();
+      if (!force && _marketCache.payload && (now - _marketCache.ts) < 30000) return _marketCache.payload;
+      if (_marketCache.inflight) return _marketCache.inflight;
+      _marketCache.inflight = (async () => {
+        const res = await fetch('/api/market' + (force ? `?t=${Date.now()}` : ''));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const payload = await res.json();
+        _marketCache = { ts: Date.now(), payload, inflight: null };
+        return payload;
+      })();
+      _marketCache.inflight.catch(() => { _marketCache.inflight = null; });
+      return _marketCache.inflight;
+    }
+
     async function renderMarketHero() {
       // 현재가 + 등락
       try {
-        const res = await fetch('/api/market');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
+        const payload = await _getMarket();
         if (!payload.ok) throw new Error(payload.error || 'fail');
         const indices = payload.indices || {};
         _renderMarketHeroOne('kospi', indices.KOSPI);
@@ -2837,7 +2975,7 @@
     }
     function _renderParticipationCard(row, rec) {
       const isP = rec?.participated === true;
-      const safeName = String(row.name || '').replace(/'/g, "\\'");
+      const safeName = String(row.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       const score = computeIpoScore(row, ipoData)?.total;
       const scoreTone = _scoreTone(score);
       const fdr = Number(row.firstDayReturn ?? 0);
@@ -2929,11 +3067,13 @@
         container.id = 'toast-container';
         container.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:60;display:flex;flex-direction:column;gap:0.5rem;max-width:340px;pointer-events:none';
         // a11y: 스크린리더 알림 (danger 는 assertive, 그 외 polite)
-        container.setAttribute('role', 'status');
-        container.setAttribute('aria-live', 'polite');
         container.setAttribute('aria-atomic', 'true');
         document.body.appendChild(container);
       }
+      // danger 는 즉시 읽히도록 assertive/alert, 그 외 polite/status (F-10)
+      const _urgent = kind === 'danger';
+      container.setAttribute('role', _urgent ? 'alert' : 'status');
+      container.setAttribute('aria-live', _urgent ? 'assertive' : 'polite');
       const t = document.createElement('div');
       const toneMap = {
         info: { bg: 'var(--accent)', fg: 'var(--card)' },
@@ -2942,7 +3082,7 @@
         danger: { bg: 'var(--neg)', fg: 'var(--card)' },
       };
       const tone = toneMap[kind] || toneMap.info;
-      t.style.cssText = `background: ${tone.bg}; color: ${tone.fg}; padding: 0.625rem 0.875rem; border-radius: var(--radius-md); box-shadow: var(--shadow-md); font-size: 0.8125rem; line-height: 1.5; word-break: keep-all; pointer-events: auto; cursor: pointer; opacity: 0; transform: translateX(10px); transition: opacity 160ms ease-out, transform 160ms ease-out`;
+      t.style.cssText = `background: ${tone.bg}; color: ${tone.fg}; padding: 0.625rem 0.875rem; border-radius: var(--radius-md); box-shadow: var(--shadow-md); font-size: var(--fs-sm); line-height: 1.5; word-break: keep-all; pointer-events: auto; cursor: pointer; opacity: 0; transform: translateX(10px); transition: opacity 160ms ease-out, transform 160ms ease-out`;
       t.textContent = message;
       t.onclick = () => t.remove();
       container.appendChild(t);
@@ -3069,10 +3209,10 @@
     // 종목 상세 모달 헤더의 참여 토글 (즉시 표시)
     function getParticipationToggleHTML(row) {
       const isP = isParticipated(row.name);
-      const safeName = String(row.name || '').replace(/'/g, "\\'");
+      const safeName = String(row.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       return `<button type="button" onclick="setParticipation('${safeName}', { participated: ${!isP}, avgBuyPrice: ${row.offeringPrice || 0} }); showDetail(${row.id})"
                       class="header-tool ${isP ? 'primary' : ''}"
-                      style="height: 1.875rem; padding: 0 0.75rem; font-size: 0.75rem; margin-left: 0.5rem; vertical-align: middle;"
+                      style="height: 1.875rem; padding: 0 0.75rem; font-size: var(--fs-xs); margin-left: 0.5rem; vertical-align: middle;"
                       aria-pressed="${isP}" title="${isP ? '회사 참여 종목 — 클릭 시 해제' : '회사 참여 종목으로 표시'}">
         ${isP ? '✓ 참여 종목' : '+ 참여 등록'}
       </button>`;
@@ -3119,7 +3259,7 @@
     }
     function _renderParticipationRow(row, rec) {
       const isP = rec?.participated === true;
-      const safeName = String(row.name || '').replace(/'/g, "\\'");
+      const safeName = String(row.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       return `<div class="border border-[var(--border)] rounded p-2 ${isP ? '' : 'opacity-70'}" style="${isP ? 'background: color-mix(in oklch, var(--pos) 6%, transparent); border-color: color-mix(in oklch, var(--pos) 35%, var(--border));' : ''}">
         <div class="flex items-center justify-between gap-2">
           <label class="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
@@ -3293,7 +3433,7 @@
 
     function _renderRegretRow(row, rec, a) {
       if (!a || a.maxPrice === null) {
-        const safeName = String(row.name || '').replace(/'/g, "\\'");
+        const safeName = String(row.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         // ticker 없으면 수동 입력 필드 제공 (스팩 등)
         if (a && a._needTicker) {
           return `<div class="text-xs">
@@ -3839,6 +3979,16 @@
         // Strict new-listing (DART estkRs + 비금융/비SPAC)
         if (activeFilters.strictNewOnly && !isStrictNewCompliant(row)) return false;
 
+        // AI 점수 최소 (precompute 캐시 사용 → row 당 O(1))
+        if (activeFilters.minAiScore > 0) {
+          const sc = computeIpoScore(row, ipoData)?.total;
+          if (sc == null || sc < activeFilters.minAiScore) return false;
+        }
+
+        // 상장 상태 (예정 / 상장됨)
+        if (activeFilters.listingStatus === 'upcoming' && !isUpcomingIPO(row)) return false;
+        if (activeFilters.listingStatus === 'listed' && isUpcomingIPO(row)) return false;
+
         // 워치리스트 only (사이드바 패널 토글)
         if (window._watchlistOnlyFilter) {
           const wl = (typeof getWatchlist === 'function') ? getWatchlist() : new Set();
@@ -3861,34 +4011,17 @@
       const sbCount = document.getElementById('sidebar-count');
       if (sbCount) sbCount.textContent = `${ipoData.length}건 (필터 ${filteredData.length})`;
 
-      // 고급분석 view 가 열려있으면 활성 탭 자동 리렌더
-      const advRoot = document.getElementById('advanced-root');
-      if (advRoot && !advRoot.classList.contains('hidden-view')) {
-        const tab = document.querySelector('.advanced-tab.active')?.dataset.advTab;
-        if (tab) setAdvancedTab(tab);
-        updateAdvSummary();
-      }
+      // (고급분석 활성 탭 재렌더는 renderAll 이 view 가시성 체크 후 처리 — 중복 제거)
 
       // URL state 동기화 (debounce — history.replaceState 스팸 방지, perf)
       if (typeof _debouncedUrlState === 'function') _debouncedUrlState();
-
-      // 고급 분석 모달이 열려 있고 Parallel Coordinates 컨테이너가 사용 중이면 자동 리렌더
-      const modal = document.getElementById('modal');
-      const viz = document.getElementById('advanced-viz');
-      if (
-        modal && !modal.classList.contains('hidden') &&
-        viz && window.Plotly &&
-        filteredData.length > 0
-      ) {
-        renderParallelCoordinates();
-      }
     }
 
     function resetAllFilters() {
       activeFilters = {
         period: 'all', markets: new Set(['all']), sectors: new Set(),
         search: '', upperOnly: false, returnMin: -100, returnMax: 300,
-        strictNewOnly: false
+        strictNewOnly: false, minAiScore: 0, listingStatus: 'all'
       };
       // strict chip 시각 상태 복구
       const strictChip = document.getElementById('strict-chip');
@@ -3909,8 +4042,44 @@
       document.getElementById('market-KOSPI').classList.remove('active');
       document.getElementById('market-KOSDAQ').classList.remove('active');
       document.querySelectorAll('#sector-tags .sector-tag').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('#ai-score-filters .filter-chip').forEach(el => el.classList.toggle('active', el.dataset.ai === '0'));
+      document.querySelectorAll('#listing-status-filters .filter-chip').forEach(el => el.classList.toggle('active', el.dataset.status === 'all'));
       updateReturnRangeLabel();
       applyFilters();
+    }
+
+    // 빠른 필터 — AI 점수 / 상장 상태 / 프리셋 (기능 확장 + 필터링)
+    function setMinAiScore(v) {
+      activeFilters.minAiScore = Number(v) || 0;
+      document.querySelectorAll('#ai-score-filters .filter-chip').forEach(el =>
+        el.classList.toggle('active', Number(el.dataset.ai) === activeFilters.minAiScore));
+      applyFilters();
+    }
+    function setListingStatus(s) {
+      activeFilters.listingStatus = s;
+      document.querySelectorAll('#listing-status-filters .filter-chip').forEach(el =>
+        el.classList.toggle('active', el.dataset.status === s));
+      applyFilters();
+    }
+    const PRESET_LABELS = { ai: 'AI 우량 80+', upcoming: '예정 IPO', recent: '최근 상장 1년', hot: '강세 후보 (AI70+·수익0+)' };
+    function applyFilterPreset(name) {
+      activeFilters = {
+        period: 'all', markets: new Set(['all']), sectors: new Set(),
+        search: '', upperOnly: false, returnMin: -100, returnMax: 300,
+        strictNewOnly: false, minAiScore: 0, listingStatus: 'all',
+      };
+      if (name === 'ai') activeFilters.minAiScore = 80;
+      else if (name === 'upcoming') activeFilters.listingStatus = 'upcoming';
+      else if (name === 'recent') { activeFilters.listingStatus = 'listed'; activeFilters.period = '1y'; }
+      else if (name === 'hot') { activeFilters.minAiScore = 70; activeFilters.returnMin = 0; }
+      // DOM 입력 초기화 후 상태 반영
+      ['search-input', 'date-from', 'date-to'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      const up = document.getElementById('upper-only'); if (up) up.checked = false;
+      const rmin = document.getElementById('return-min'); if (rmin) rmin.value = activeFilters.returnMin;
+      const rmax = document.getElementById('return-max'); if (rmax) rmax.value = activeFilters.returnMax;
+      syncFilterUIFromState();
+      applyFilters();
+      if (typeof pushToast === 'function') pushToast(`프리셋: ${PRESET_LABELS[name] || name}`, 'info', 2200);
     }
 
     // ============================================================
@@ -3974,6 +4143,7 @@
     }
 
     let _kpiSparkInstances = [];
+    let _kpiBuilt = false;
 
     function renderKPIs() {
       const container = document.getElementById('kpi-cards');
@@ -3983,6 +4153,7 @@
         // 이전 sparkline 인스턴스 정리
         _kpiSparkInstances.forEach(c => { try { c.destroy(); } catch (e) {} });
         _kpiSparkInstances = [];
+        _kpiBuilt = false;
         return;
       }
 
@@ -4017,54 +4188,56 @@
         { label: '평균 락업 비율', value: `${avgLockup.toFixed(1)}%`, sub: `의무보유확약 · 만료 D-30 임박 ${lockupImminent}건`, series: trend.map(t => t.lockup), color: avgLockup >= 30 ? POS : avgLockup <= 5 ? NEG : ACC }
       ];
 
-      container.innerHTML = kpis.map((k, i) => {
-        const isReturn = k.label.includes('수익');
-        const valueClass = isReturn && parseFloat(k.value) > 0 ? 'pos' : isReturn && parseFloat(k.value) < 0 ? 'neg' : '';
-        return `
-        <div class="card p-4 flex flex-col">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <div class="kpi-label">${k.label}</div>
-              <div class="kpi-value mt-1 ${valueClass}">${k.value}</div>
-              <div class="text-xxs text-[var(--muted)] mt-0.5">${k.sub}</div>
+      // 카드 구조는 1회만 생성 (라벨·개수 고정 6) — 이후 값/스파크라인만 갱신 (perf: 인스턴스 재사용)
+      if (!_kpiBuilt || container.querySelectorAll('.kpi-card').length !== kpis.length) {
+        container.innerHTML = kpis.map((k, i) => `
+          <div class="card p-4 flex flex-col kpi-card">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="kpi-label">${k.label}</div>
+                <div class="kpi-value mt-1" id="kpi-val-${i}"></div>
+                <div class="text-xxs text-[var(--muted)] mt-0.5" id="kpi-sub-${i}"></div>
+              </div>
+              <canvas id="kpi-spark-${i}" width="64" height="28" class="flex-shrink-0" aria-hidden="true" style="width:64px;height:28px;"></canvas>
             </div>
-            <canvas id="kpi-spark-${i}" width="64" height="28" class="flex-shrink-0" aria-hidden="true" style="width:64px;height:28px;"></canvas>
-          </div>
-        </div>
-      `;}).join('');
+          </div>`).join('');
+        _kpiSparkInstances.forEach(c => { try { c.destroy(); } catch (e) {} });
+        _kpiSparkInstances = kpis.map((k, i) => {
+          const cv = document.getElementById(`kpi-spark-${i}`);
+          if (!cv) return null;
+          try {
+            return new Chart(cv, {
+              type: 'line',
+              data: { labels: [], datasets: [{ data: [], backgroundColor: 'transparent', borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.35, spanGaps: true }] },
+              options: {
+                responsive: false, maintainAspectRatio: false, animation: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: { x: { display: false }, y: { display: false } },
+              }
+            });
+          } catch (e) { return null; }
+        });
+        _kpiBuilt = true;
+      }
 
-      // 기존 인스턴스 정리 후 sparkline 그리기
-      _kpiSparkInstances.forEach(c => { try { c.destroy(); } catch (e) {} });
-      _kpiSparkInstances = [];
+      // 값·서브·스파크라인 데이터만 갱신 (DOM·Chart 인스턴스 재사용 → destroy/recreate 제거)
       kpis.forEach((k, i) => {
-        const cv = document.getElementById(`kpi-spark-${i}`);
-        if (!cv || !k.series || k.series.filter(v => v != null).length < 2) return;
-        try {
-          const inst = new Chart(cv, {
-            type: 'line',
-            data: {
-              labels: k.series.map((_, j) => String(j)),
-              datasets: [{
-                data: k.series,
-                borderColor: k.color,
-                backgroundColor: 'transparent',
-                borderWidth: 1.5,
-                fill: false,
-                pointRadius: 0,
-                tension: 0.35,
-                spanGaps: true,
-              }]
-            },
-            options: {
-              responsive: false,
-              maintainAspectRatio: false,
-              animation: false,
-              plugins: { legend: { display: false }, tooltip: { enabled: false } },
-              scales: { x: { display: false }, y: { display: false } },
-            }
-          });
-          _kpiSparkInstances.push(inst);
-        } catch (e) { /* ignore individual sparkline failures */ }
+        const isReturn = k.label.includes('수익');
+        const valEl = document.getElementById(`kpi-val-${i}`);
+        if (valEl) {
+          valEl.textContent = k.value;
+          const cls = isReturn && parseFloat(k.value) > 0 ? 'pos' : isReturn && parseFloat(k.value) < 0 ? 'neg' : '';
+          valEl.className = `kpi-value mt-1 ${cls}`;
+        }
+        const subEl = document.getElementById(`kpi-sub-${i}`);
+        if (subEl) subEl.textContent = k.sub;
+        const chart = _kpiSparkInstances[i];
+        if (chart && k.series && k.series.filter(v => v != null).length >= 2) {
+          chart.data.labels = k.series.map((_, j) => String(j));
+          chart.data.datasets[0].data = k.series;
+          chart.data.datasets[0].borderColor = k.color;
+          chart.update('none');
+        }
       });
     }
 
@@ -4075,6 +4248,17 @@
       if (charts[id]) { charts[id].destroy(); delete charts[id]; }
     }
 
+    // 분석 개요 차트 공통 지표 (그래프 정리 — 월별/분포/업종이 동일 지표로 전환)
+    let _chartMetric = 'firstDayReturn';
+    const CHART_METRICS = { firstDayReturn: '첫날 수익률', highReturn: '고가 수익률', return6M: '6개월 수익률' };
+    function setChartMetric(m) {
+      if (!CHART_METRICS[m]) return;
+      _chartMetric = m;
+      renderMonthlyChart();
+      renderDistributionChart();
+      renderSectorChart();
+    }
+
     function renderMonthlyChart() {
       destroyChart('monthly');
       const ctx = document.getElementById('chart-monthly');
@@ -4082,9 +4266,11 @@
       // Group by YYYY-MM (라벨 풀 매핑 유지 — 브러시 결과를 dateFrom/dateTo 로 환원하기 위함)
       const groups = {};
       filteredData.forEach(r => {
+        const v = r[_chartMetric];
+        if (v === null || v === undefined || Number.isNaN(Number(v))) return;
         const ym = r.listingDate.slice(0, 7);
         if (!groups[ym]) groups[ym] = [];
-        groups[ym].push(r.firstDayReturn);
+        groups[ym].push(Number(v));
       });
       const labelsFull = Object.keys(groups).sort().slice(-18); // YYYY-MM
       const avgs = labelsFull.map(ym => {
@@ -4136,7 +4322,7 @@
         data: {
           labels: labelsFull.map(l => l.slice(2).replace('-', '.')),
           datasets: [{
-            label: '평균 첫날 수익률 (%)',
+            label: `평균 ${CHART_METRICS[_chartMetric]} (%)`,
             data: avgs,
             backgroundColor: avgs.map(v => v >= 0 ? 'oklch(0.62 0.17 142 / 0.85)' : 'oklch(0.62 0.20 28 / 0.85)'),
             borderWidth: 0,
@@ -4172,7 +4358,8 @@
       const labels = ['-50%↓', '-50~-20%', '-20~0%', '0~20%', '20~50%', '50~100%', '100~200%', '200%↑'];
 
       filteredData.forEach(r => {
-        const v = r.firstDayReturn;
+        const v = r[_chartMetric];
+        if (v === null || v === undefined || Number.isNaN(Number(v))) return;
         let idx = buckets.findIndex(b => v < b);
         if (idx === -1) idx = buckets.length;
         counts[idx]++;
@@ -4236,8 +4423,10 @@
 
       const bySector = {};
       filteredData.forEach(r => {
+        const v = r[_chartMetric];
+        if (v === null || v === undefined || Number.isNaN(Number(v))) return;
         if (!bySector[r.sector]) bySector[r.sector] = [];
-        bySector[r.sector].push(r.firstDayReturn);
+        bySector[r.sector].push(Number(v));
       });
       const entries = Object.entries(bySector)
         .map(([s, arr]) => ({ sector: s, avg: arr.reduce((a, b) => a + b, 0) / arr.length, count: arr.length }))
@@ -4249,7 +4438,7 @@
         data: {
           labels: entries.map(e => e.sector),
           datasets: [{
-            label: '평균 첫날 수익률',
+            label: `평균 ${CHART_METRICS[_chartMetric]}`,
             data: entries.map(e => e.avg),
             backgroundColor: entries.map(e => e.avg >= 0 ? 'oklch(0.56 0.17 142 / 0.8)' : 'oklch(0.54 0.20 25 / 0.8)'),
             borderRadius: 3
@@ -4279,6 +4468,8 @@
 
     function renderCharts() {
       syncChartDefaultsToTheme();
+      const _metricSel = document.getElementById('chart-metric-select');  // 재진입 시 셀렉터↔상태 동기화
+      if (_metricSel && _metricSel.value !== _chartMetric) _metricSel.value = _chartMetric;
       renderMonthlyChart();
       renderDistributionChart();
       renderScatterChart();
@@ -4323,6 +4514,10 @@
         // 락업 D-day 는 임박한 게 먼저 → 기본 asc, 그 외는 desc 가 자연스러움
         currentSort = { key, dir: key === 'lockupDday' ? 'asc' : 'desc' };
       }
+      // a11y: 정렬 상태를 헤더에 반영 (aria-sort, F-04)
+      document.querySelectorAll('.data-table th[onclick]').forEach(th => th.removeAttribute('aria-sort'));
+      const _sortedTh = document.querySelector(`.data-table th[onclick*="'${key}'"]`);
+      if (_sortedTh) _sortedTh.setAttribute('aria-sort', currentSort.dir === 'asc' ? 'ascending' : 'descending');
       // 락업 D-day 는 derived 값 → 정렬 시 계산
       const getValue = (r, k) => {
         if (k === 'listingDate') return parseDate(r.listingDate);
@@ -4358,7 +4553,7 @@
       const pageData = filteredData.slice(start, start + PAGE_SIZE);
 
       tbody.innerHTML = pageData.map(r => `
-        <tr class="cursor-pointer" onclick="showDetail(${r.id})">
+        <tr class="cursor-pointer" onclick="openStockDetail(${r.id})">
           <td class="font-medium">${escHtml(r.name)}${getNaverLinkHTML(r)} ${getUpcomingBadgeHTML(r)} ${getWarningBadgesHTML(r, { compact: true })}</td>
           <td class="text-[var(--muted)]">${r.listingDate}</td>
           <td>
@@ -4368,7 +4563,7 @@
           <td class="text-[var(--muted)] text-xs hide-mobile">${escHtml(r.sector)}</td>
           <td class="text-right font-semibold tabular-nums ${r.firstDayReturn >= 0 ? 'pos' : 'neg'}"><span aria-hidden="true">${r.firstDayReturn >= 0 ? '▲' : '▼'}</span> ${formatPct(r.firstDayReturn)}</td>
           <td class="text-right tabular-nums hide-mobile ${(r.return6M === null || r.return6M === undefined) ? 'text-[var(--muted)]' : r.return6M >= 0 ? 'pos' : 'neg'}">${formatPct(r.return6M)}</td>
-          <td class="text-right tabular-nums hide-mobile">${r.competitionRetail.toFixed(1)}:1</td>
+          <td class="text-right tabular-nums hide-mobile">${(r.competitionRetail != null) ? r.competitionRetail.toFixed(1) + ':1' : '<span class="text-[var(--muted)]">-</span>'}</td>
           <td class="text-right tabular-nums hide-mobile">${formatNum(r.offeringAmount)}</td>
           <td class="text-right tabular-nums hide-mobile">${(() => {
             const d = getDaysSinceListing(r);
@@ -4380,7 +4575,7 @@
             return `<span class="${tone} font-medium">D+${d}</span>${yrSuffix}`;
           })()}</td>
           <td class="text-right">${getIpoScoreHTML(r, { compact: true })}</td>
-          <td class="text-center text-[var(--muted)]">⋯</td>
+          <td class="text-center"><button type="button" class="text-[var(--muted)] hover:text-[var(--text)] focus-ring" style="padding:2px 8px;border:none;background:transparent;cursor:pointer;border-radius:var(--radius-sm)" title="빠른 보기 (모달)" aria-label="${escHtml(r.name)} 빠른 보기" onclick="event.stopPropagation();showDetail(${r.id})">⋯</button></td>
         </tr>
       `).join('');
 
@@ -4537,132 +4732,7 @@
     }
 
     // 고급 분석 (B + C 대응, polished) - Plotly 사용
-    function showAdvancedAnalysis() {
-      const modal = document.getElementById('modal');
-      const content = modal.querySelector('.card') || modal;
-
-      // 임시 fix: 모달 카드의 max-width 를 고급분석 전용으로 확장 (다음 Phase 에서 사이드바 + 별도 view 로 격리 예정)
-      // closeModal 에서 복원
-      content.classList.remove('max-w-lg');
-      content.classList.add('max-w-6xl');
-      window._modalWidthOverridden = true;
-
-      // 기존 모달 내용 임시 백업
-      const originalContent = content.innerHTML;
-      content.innerHTML = `
-        <div class="p-6">
-          <div class="flex items-start justify-between mb-4 gap-3 flex-wrap">
-            <div class="min-w-0">
-              <div class="text-xl font-semibold">고급 분석</div>
-              <div class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">현재 필터 적용된 ${filteredData.length}건 · 메인 필터와 자동 연동. <span class="text-xxs">[다음 Phase: 사이드바에서 별도 페이지로 격리 예정]</span></div>
-            </div>
-            <button onclick="closeModal()" aria-label="고급 분석 닫기" class="text-2xl leading-none text-[var(--muted)] hover:text-[var(--text)] focus-ring">&times;</button>
-          </div>
-
-          <div class="mb-4 flex flex-wrap gap-2">
-            <button onclick="renderParallelCoordinates()" class="header-tool outline">Parallel Coordinates 렌더</button>
-            <button onclick="render3DPoC()" class="header-tool">3D Scatter PoC (보조용)</button>
-          </div>
-
-          <!-- 가시성 ↑: 명시적 높이 600px + overflow auto + Plotly responsive (모달 폭 확장과 함께 라벨/컬러바 잘림 해소) -->
-          <div id="advanced-viz" style="width:100%; min-height:600px; height:60vh; max-height:720px; border:1px solid var(--border); border-radius:8px; overflow:auto;"></div>
-
-          <div class="mt-3 p-3 bg-[var(--row-hover)] rounded text-xs text-[var(--muted)]" style="word-break:keep-all">
-            Parallel 축: competitionRetail · firstDayReturn · offeringAmount · daysToHigh · return6M (색상=첫날수익). 축 드래그로 즉시 brushing. 메인 필터 변경 시 자동 리렌더.<br>
-            <span class="text-xxs">3D PoC 는 가독성·접근성 저하로 보조용으로만 사용하세요.</span>
-          </div>
-        </div>
-      `;
-
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
-
-      window._advancedOriginalContent = originalContent;
-
-      // 모달 표시 직후 한 번 자동 렌더 (사용자 한 번 더 클릭 불필요)
-      setTimeout(() => {
-        try { renderParallelCoordinates(); } catch (e) { console.warn('parallel init render failed', e); }
-        // window resize 시 Plotly 재배치
-        if (window.Plotly && !window._advancedResizeBound) {
-          window._advancedResizeBound = true;
-          window.addEventListener('resize', () => {
-            const viz = document.getElementById('advanced-viz');
-            if (viz && viz.offsetParent !== null) {
-              try { Plotly.Plots.resize(viz); } catch (e) {}
-            }
-          });
-        }
-      }, 80);
-    }
-
-    function renderParallelCoordinates() {
-      const container = document.getElementById('advanced-viz');
-      if (!window.Plotly) {
-        container.innerHTML = '<div class="p-8 text-center text-[var(--neg)]">Plotly.js 로드 실패. 인터넷 연결 확인 후 새로고침하세요.</div>';
-        return;
-      }
-
-      const data = filteredData.filter(d => d.competitionRetail != null && d.firstDayReturn != null && d.offeringAmount != null);
-
-      // Exact requested dimensions: competitionRetail, firstDayReturn, offeringAmount, daysToHigh, return6M
-      // Color by market (simple discrete) + firstDayReturn scale for emphasis
-      const marketColor = data.map(d => d.market === 'KOSPI' ? 1 : 0);
-      const trace = {
-        type: 'parcoords',
-        line: {
-          color: data.map(d => d.firstDayReturn),
-          colorscale: 'RdBu',
-          showscale: true,
-          cmin: -50,
-          cmax: 150
-        },
-        dimensions: [
-          { label: '개인경쟁률', values: data.map(d => d.competitionRetail) },
-          { label: '첫날수익(%)', values: data.map(d => d.firstDayReturn) },
-          { label: '공모금액(억)', values: data.map(d => d.offeringAmount) },
-          { label: '고가달성일', values: data.map(d => d.daysToHigh) },
-          { label: '6M수익(%)', values: data.map(d => d.return6M ?? 0) },
-        ]
-      };
-
-      Plotly.newPlot(container, [trace], {
-        title: `Parallel Coordinates — ${data.length}건 (현재 필터 연동, 색상=첫날수익)`,
-        margin: { l: 70, r: 60, t: 48, b: 40 }
-      });
-    }
-
-    function render3DPoC() {
-      const container = document.getElementById('advanced-viz');
-      if (!window.Plotly) {
-        container.innerHTML = '<div class="p-8 text-center text-[var(--neg)]">Plotly.js 필요</div>';
-        return;
-      }
-
-      const data = filteredData.filter(d => d.competitionRetail != null && d.firstDayReturn != null && d.offeringAmount > 0);
-
-      const trace = {
-        type: 'scatter3d',
-        mode: 'markers',
-        x: data.map(d => d.competitionRetail),
-        y: data.map(d => d.firstDayReturn),
-        z: data.map(d => d.offeringAmount),
-        text: data.map(d => d.name),
-        marker: { size: 5, color: data.map(d => d.firstDayReturn), colorscale: 'RdBu' }
-      };
-
-      Plotly.newPlot(container, [trace], {
-        title: '3D PoC (제한적) — x=경쟁률, y=첫날수익, z=공모금액',
-        scene: { xaxis: { title: '경쟁률' }, yaxis: { title: '첫날수익(%)' }, zaxis: { title: '공모금액(억)' } },
-        margin: { l: 0, r: 0, t: 30, b: 0 }
-      });
-
-      // Append exact required accessibility note (toggleable context)
-      const note = document.createElement('div');
-      note.className = 'mt-2 text-xxs text-[var(--muted)]';
-      note.style.wordBreak = 'keep-all';
-      note.textContent = '제한적 PoC — 가독성/접근성 이유로 보조용, 2D/Parallel 우선 권장';
-      container.appendChild(note);
-    }
+    // 레거시 고급분석 모달(showAdvancedAnalysis/renderParallelCoordinates/render3DPoC) 제거 — analytics view 로 대체 (v1.7 dead code 정리)
 
     // ============================================================
     // Export / Import
@@ -4717,10 +4787,17 @@
     function renderAll() {
       renderKPIs();
       renderLockupCalendar();
-      runBacktest();
-      renderCharts();
-      renderPerformers();
-      renderTable();
+      renderTodayBoard();
+      // 무거운 렌더는 보이는 view 에만 — 다른 view 는 진입 시 showView 가 재렌더
+      if (!document.getElementById('screener-root')?.classList.contains('hidden-view')) {
+        renderPerformers();
+        renderTable();
+      }
+      if (!document.getElementById('advanced-root')?.classList.contains('hidden-view')) {
+        const tab = _activeAdvancedTab;
+        setAdvancedTab(tab);
+        updateAdvSummary();
+      }
     }
 
     // ============================================================
@@ -4951,41 +5028,475 @@
     }
 
     // ============================================================
-    // 사이드바 + view 라우팅 (#/  대시보드, #/advanced 고급분석)
+    // 오늘 보드 (Phase 2) — /api/ipo/schedule (외부 일정) + ipoData 통합
+    // D-day 3버킷 (오늘/이번 주/다음 주) + 파이프라인 칩 + 참여 요약 스트립
+    // ============================================================
+    let _ipoSchedule = null;
+    let _newsFeedTimer = null;
+    let _newsCache = { dart: null, rss: null };
+    let _newsCacheTs = 0;
+    let _newsFilter = 'all';
+
+    async function fetchIpoSchedule(force = false) {
+      try {
+        const res = await fetch('/api/ipo/schedule' + (force ? '?refresh=1' : ''));
+        const json = await res.json();
+        _ipoSchedule = Array.isArray(json.items) ? json.items : [];
+      } catch (e) {
+        _ipoSchedule = [];
+      }
+      renderTodayBoard();
+    }
+
+    // 'YYYY-MM-DD' → 오늘 기준 일수 차 (오늘 0, 내일 1, 어제 -1)
+    function _dDay(dateStr) {
+      if (!dateStr) return null;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const d = new Date(dateStr + 'T00:00:00');
+      if (Number.isNaN(d.getTime())) return null;
+      return Math.round((d - today) / 86400000);
+    }
+    function _fmtMD(s) { return s && s.length >= 10 ? `${parseInt(s.slice(5, 7), 10)}.${s.slice(8, 10)}` : ''; }
+    function _lockupDateOf(r) {
+      if (!r?.listingDate) return null;
+      const d = new Date(r.listingDate + 'T00:00:00');
+      if (Number.isNaN(d.getTime())) return null;
+      d.setMonth(d.getMonth() + 6);  // 의무보유확약 6개월 (한국 IPO 표준)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function _collectTodayEvents() {
+      const ev = [];
+      (Array.isArray(_ipoSchedule) ? _ipoSchedule : []).forEach(it => {
+        const sid = _resolveStock(it.name)?.id;  // 내부 데이터와 매칭되면 상세 링크 활성화
+        if (it.demand_start) ev.push({ type: '수요예측', name: it.name, date: it.demand_start, until: it.demand_end, id: sid });
+        if (it.sub_start) ev.push({ type: '청약', name: it.name, date: it.sub_start, until: it.sub_end, id: sid });
+        if (it.listing) ev.push({ type: '상장', name: it.name, date: it.listing, id: sid });
+      });
+      (ipoData || []).forEach(r => {
+        if (!r.listingDate) return;
+        const dd = _dDay(r.listingDate);
+        if (dd !== null && dd >= 0 && dd <= 14 && !ev.some(e => e.type === '상장' && e.name === r.name)) {
+          ev.push({ type: '상장', name: r.name, date: r.listingDate, id: r.id });
+        }
+        const ls = _lockupDateOf(r);
+        const ld = _dDay(ls);
+        if (ld !== null && ld >= 0 && ld <= 14) ev.push({ type: '락업해제', name: r.name, date: ls, id: r.id });
+      });
+      return ev;
+    }
+
+    function renderTodayBoard() {
+      const body = document.getElementById('today-board-body');
+      if (!body) return;
+      const ev = _collectTodayEvents();
+      const buckets = [
+        { label: '오늘', test: d => d === 0 },
+        { label: '이번 주', test: d => d >= 1 && d <= 7 },
+        { label: '다음 주', test: d => d >= 8 && d <= 14 },
+      ];
+      const TYPE_CLS = { '수요예측': 'today-ev--demand', '청약': 'today-ev--sub', '상장': 'today-ev--list', '락업해제': 'today-ev--lock' };
+      body.innerHTML = buckets.map(b => {
+        const items = ev
+          .filter(e => { const d = _dDay(e.date); return d !== null && b.test(d); })
+          .sort((a, c) => a.date.localeCompare(c.date))
+          .slice(0, 6);
+        const rows = items.length
+          ? items.map(e => `
+            <div class="flex items-center gap-2 text-xs py-1 min-w-0">
+              <span class="today-ev ${TYPE_CLS[e.type] || ''}">${e.type}</span>
+              ${e.id !== undefined
+                ? `<button type="button" class="truncate text-left hover:underline focus-ring" style="background:none;border:none;padding:0;margin:0;cursor:pointer;color:inherit;font:inherit;min-width:0" onclick="openStockDetail(${e.id})">${escHtml(e.name)}</button>`
+                : `<span class="truncate">${escHtml(e.name)}</span>`}
+              <span class="ml-auto text-[var(--muted)] tabular-nums flex-shrink-0">${_fmtMD(e.date)}${e.until ? '~' + _fmtMD(e.until) : ''}</span>
+            </div>`).join('')
+          : '<div class="text-xxs text-[var(--muted)] py-2">예정 없음</div>';
+        return `<div class="rounded-lg border border-[var(--border)] p-3 min-w-0">
+          <div class="kpi-label mb-1.5">${b.label}</div>${rows}</div>`;
+      }).join('');
+      // 파이프라인 칩 (외부 일정 stage 기준)
+      const chips = document.getElementById('pipeline-chips');
+      if (chips) {
+        const sch = Array.isArray(_ipoSchedule) ? _ipoSchedule : [];
+        chips.innerHTML = sch.length
+          ? ['수요예측', '청약', '상장대기'].map(s => {
+              const n = sch.filter(it => it.stage === s).length;
+              return `<button type="button" class="filter-chip" title="${s} ${n}건 — 예정 종목 필터로 보기" onclick="applyFilterPreset('upcoming'); showView('screener')">${s} <strong class="tabular-nums">${n}</strong></button>`;
+            }).join('')
+          : '<span class="text-xxs text-[var(--muted)]">외부 일정 미수신 — serve.py 확인</span>';
+      }
+      // 참여 종목 요약 스트립
+      const strip = document.getElementById('today-positions-strip');
+      if (strip) {
+        try {
+          const p = getParticipation();
+          const n = Object.keys(p).filter(k => p[k]?.participated).length;
+          if (n > 0) {
+            strip.classList.remove('hidden');
+            strip.innerHTML = `<span class="text-[var(--muted)]">우리 회사 참여 종목</span><strong class="tabular-nums">${n}건</strong>
+              <button type="button" class="filter-chip" onclick="showView('positions')">내 포지션 →</button>`;
+          } else {
+            strip.classList.add('hidden');
+          }
+        } catch (e) { strip.classList.add('hidden'); }
+      }
+    }
+
+    // ============================================================
+    // 뉴스 · 공시 피드 (Phase 3) — /api/news/dart + /api/news/rss
+    // 종목 상세에서는 /api/news/search (네이버 검색 API) 추가 사용
+    // ============================================================
+    function _safeUrl(u) {
+      // href 인젝션 방지 — http(s) 외 스킴(javascript:, data:, vbscript:)은 무력화 (보안 HIGH)
+      return /^https?:\/\//i.test(u || '') ? u : '#';
+    }
+    function setNewsFilter(f) {
+      _newsFilter = f;
+      document.querySelectorAll('[data-news-filter]').forEach(el => {
+        const on = el.dataset.newsFilter === f;
+        el.classList.toggle('active', on);
+        el.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      _renderNewsList();
+    }
+    function _timeAgo(iso) {
+      const t = new Date(iso).getTime();
+      if (Number.isNaN(t)) return '';
+      const m = Math.round((Date.now() - t) / 60000);
+      if (m < 1) return '방금';
+      if (m < 60) return `${m}분 전`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}시간 전`;
+      return `${Math.floor(h / 24)}일 전`;
+    }
+    async function renderNewsFeed(force = false) {
+      const body = document.getElementById('news-feed-body');
+      if (!body) return;
+      // 캐시 유효(9분 이내) + 비강제 시 재fetch 생략, 재렌더만 (perf: today view 재진입 중복 fetch 차단)
+      if (!force && _newsCache.dart && (Date.now() - _newsCacheTs) < 9 * 60 * 1000) {
+        _renderNewsList();
+        return;
+      }
+      if (force) body.innerHTML = '<div class="text-xxs text-[var(--muted)]">불러오는 중…</div>';
+      const [dart, rss] = await Promise.all([
+        fetch('/api/news/dart?days=7').then(r => r.json()).catch(() => ({ items: [] })),
+        fetch('/api/news/rss').then(r => r.json()).catch(() => ({ items: [] })),
+      ]);
+      _newsCache.dart = (dart.items || []).map(it => ({
+        kind: 'dart',
+        title: `${it.corp_name} — ${it.report_nm}`,
+        link: it.link,
+        time: it.rcept_dt && it.rcept_dt.length >= 8
+          ? `${it.rcept_dt.slice(0, 4)}-${it.rcept_dt.slice(4, 6)}-${it.rcept_dt.slice(6, 8)}T09:00:00`
+          : '',
+        src: 'DART',
+        corp: it.corp_name || '',
+      }));
+      _newsCache.rss = (rss.items || []).map(it => ({
+        kind: 'news', title: it.title, link: it.link, time: it.pubDate, src: it.source || '한국경제',
+      }));
+      _newsCacheTs = Date.now();
+      _renderNewsList();
+    }
+    function _renderNewsList() {
+      const body = document.getElementById('news-feed-body');
+      if (!body) return;
+      const all = [...(_newsCache.dart || []), ...(_newsCache.rss || [])]
+        .filter(it => _newsFilter === 'all' || (_newsFilter === 'dart' ? it.kind === 'dart' : it.kind === 'news'))
+        .sort((a, b) => String(b.time).localeCompare(String(a.time)))
+        .slice(0, 12);
+      if (!all.length) {
+        body.innerHTML = '<div class="text-xs text-[var(--muted)] py-3" style="word-break:keep-all">표시할 항목이 없습니다 — serve.py 실행 여부를 확인하세요 (http://localhost:8000/api/ping 진단).</div>';
+        return;
+      }
+      body.innerHTML = all.map(it => `
+        <a href="${escHtml(_safeUrl(it.link))}" target="_blank" rel="noopener noreferrer"
+           class="flex items-center gap-2.5 px-2 py-2 rounded hover:bg-[var(--row-hover)] min-w-0">
+          <span class="news-src ${it.kind === 'dart' ? 'news-src--dart' : 'news-src--news'}">${escHtml(it.src)}</span>
+          <span class="truncate text-sm">${escHtml(it.title)}</span>
+          <span class="ml-auto flex-shrink-0 text-xxs text-[var(--muted)] tabular-nums">${_timeAgo(it.time)}</span>
+        </a>`).join('');
+    }
+
+    // ============================================================
+    // 종목 상세 페이지 (#/stock/:key) — 가격·일정 타임라인·뉴스·메모 통합 앵커
+    // ============================================================
+    let _sdChart = null;
+
+    function openStockDetail(key) { showView('stock', { key: String(key) }); }
+
+    function _resolveStock(key) {
+      const k = String(key);
+      const pool = ipoData || [];
+      return pool.find(x => String(x.id) === k)
+        || pool.find(x => x.ticker === k)
+        || pool.find(x => x.name === k)
+        || null;
+    }
+    function _findScheduleFor(name) {
+      const sch = Array.isArray(_ipoSchedule) ? _ipoSchedule : [];
+      return sch.find(it => it.name === name)
+        || sch.find(it => it.name && name && (it.name.includes(name) || name.includes(it.name)))
+        || null;
+    }
+    function _sdMetric(label, valueHtml) {
+      return `<div class="card p-4"><div class="kpi-label mb-1">${label}</div><div class="text-lg font-semibold tabular-nums">${valueHtml}</div></div>`;
+    }
+    function _sdTimelineHTML(r, sched) {
+      const steps = [
+        { label: '수요예측', date: sched?.demand_start || null, until: sched?.demand_end || null },
+        { label: '청약', date: sched?.sub_start || null, until: sched?.sub_end || null },
+        { label: '상장', date: r.listingDate || sched?.listing || null },
+        { label: '락업 해제 (6M)', date: _lockupDateOf(r) },
+      ].filter(s => s.date);
+      if (steps.length < 2) {
+        return `<div class="text-sm text-[var(--muted)]">일정 데이터 부족 — 상장일 ${escHtml(r.listingDate || '미정')}</div>`;
+      }
+      const states = steps.map(s => {
+        const d = _dDay(s.until || s.date);
+        return d === null ? 'future' : (d < 0 ? 'done' : (_dDay(s.date) <= 0 ? 'now' : 'future'));
+      });
+      const _stLabel = { done: '완료', now: '진행 중', future: '예정' };
+      return `<div class="flex items-start" role="img" aria-label="${escHtml(r.name)} 일정 타임라인: ${steps.map((s, i) => `${s.label} ${s.date} (${_stLabel[states[i]] || '예정'})`).join(', ')}">` +
+        steps.map((s, i) => {
+          const dot = states[i] === 'done' ? 'sd-dot--done' : (states[i] === 'now' ? 'sd-dot--now' : '');
+          const line = i < steps.length - 1
+            ? `<div class="sd-line ${states[i] === 'done' ? 'sd-line--done' : ''}" aria-hidden="true"></div>` : '';
+          return `<div class="sd-step">
+              <div class="sd-dot ${dot}" aria-hidden="true"></div>
+              <div class="text-xs ${states[i] === 'now' ? 'font-semibold' : ''}">${s.label}</div>
+              <div class="text-xxs text-[var(--muted)] tabular-nums">${_fmtMD(s.date)}${s.until ? '~' + _fmtMD(s.until) : ''}</div>
+            </div>${line}`;
+        }).join('') + '</div>';
+    }
+
+    function renderStockDetail(key) {
+      const host = document.getElementById('stock-detail-body');
+      if (!host) return;
+      // 이전 종목 차트 인스턴스 정리 (innerHTML 교체 전 — 좀비 Chart.js / "Canvas in use" 방지)
+      if (_sdChart) { _sdChart.destroy(); _sdChart = null; }
+      const r0 = _resolveStock(key);
+      if (!r0) {
+        host.innerHTML = `<div class="card p-6 text-sm text-[var(--muted)]" style="word-break:keep-all">종목을 찾을 수 없습니다 — 목록에서 다시 선택하세요.
+          <button type="button" class="filter-chip ml-2" onclick="showView('screener')">종목 목록으로</button></div>`;
+        return;
+      }
+      const r = normalizeDART({ ...r0 });
+      const safeName = String(r.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const rec = (typeof getParticipationRecord === 'function' ? getParticipationRecord(r.name) : null) || {};
+      const sched = _findScheduleFor(r.name);
+      const fdr = (r.firstDayReturn === null || r.firstDayReturn === undefined)
+        ? '-' : `<span class="${r.firstDayReturn >= 0 ? 'pos' : 'neg'}">${formatPct(r.firstDayReturn)}</span>`;
+      host.innerHTML = `
+        <div class="card p-5 mb-4">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-2xl font-semibold">${escHtml(r.name)}</span>
+            ${getIpoScoreHTML(r)}
+            ${typeof getWatchlistStarHTML === 'function' ? getWatchlistStarHTML(r) : ''}
+            ${getNaverLinkHTML(r, { prominent: true })}
+            ${getDartLinkHTML(r, { prominent: true })}
+            ${getCompareToggleHTML(r)}
+            ${getParticipationToggleHTML(r)}
+          </div>
+          <div class="text-sm text-[var(--muted)] mt-1.5">${escHtml(r.listingDate || '상장 예정')} · ${escHtml(r.market || '')} · ${escHtml(r.sector || '')} · 주간사 ${escHtml(r.underwriter || '-')}${r.ticker ? ` · <span class="tabular-nums">${escHtml(r.ticker)}</span>` : ''}</div>
+          <div class="mt-2">${getWarningBadgesHTML(r)}</div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          ${_sdMetric('공모가', r.offeringPrice ? formatNum(r.offeringPrice) + '원' : '-')}
+          ${_sdMetric('현재가', '<span id="sd-current" class="text-sm text-[var(--muted)]">조회 중…</span>')}
+          ${_sdMetric('첫날 수익률', fdr)}
+          ${_sdMetric('기관 경쟁률', (r.competitionInst || 0) ? (r.competitionInst).toFixed(1) + ':1' : '-')}
+        </div>
+        <div class="card p-5 mb-4">
+          <div class="section-title">일정 타임라인</div>
+          ${_sdTimelineHTML(r, sched)}
+        </div>
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div class="card p-5">
+            <div class="section-title">상장 후 가격 추이 <span class="text-xxs font-normal text-[var(--muted)]">(일별 종가 90일)</span></div>
+            <div style="position:relative; height:240px;"><canvas id="sd-daily-canvas"></canvas></div>
+            <div id="sd-daily-status" class="text-xxs text-[var(--muted)] mt-1.5" style="word-break:keep-all"></div>
+          </div>
+          <div class="min-w-0">
+            <div class="card p-5 mb-4">
+              <div class="section-title">이 종목 뉴스 · 공시</div>
+              <div id="sd-news-body" class="text-sm"><div class="text-xxs text-[var(--muted)]">불러오는 중…</div></div>
+            </div>
+            <div class="card p-5">
+              <label class="section-title" for="sd-memo-input">메모 <span class="text-xxs font-normal text-[var(--muted)]">(종목 지정과 공유, 자동 저장)</span></label>
+              <textarea id="sd-memo-input" class="w-full text-sm px-3 py-2 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring" rows="4"
+                        placeholder="참여 사유 · 매도 전략 · 리스크 메모…"
+                        onchange="setParticipation('${safeName}', { note: this.value })">${escHtml(rec.note || '')}</textarea>
+            </div>
+          </div>
+        </div>`;
+      _sdLoadDaily(r, 90);
+      _sdLoadNews(r);
+    }
+
+    async function _sdLoadDaily(r, days) {
+      const status = document.getElementById('sd-daily-status');
+      const cur = document.getElementById('sd-current');
+      if (!r.ticker) {
+        if (status) status.textContent = '종목코드(ticker) 미등록 — 차트 생략. 종목 지정에서 코드를 입력하면 표시됩니다.';
+        if (cur) cur.textContent = '코드 없음';
+        return;
+      }
+      try {
+        const res = await fetch(`/api/daily?ticker=${encodeURIComponent(r.ticker)}&days=${days}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const payload = await res.json();
+        if (!payload.ok || !payload.data?.rows?.length) {
+          if (status) status.textContent = payload.error === 'KIS_NOT_CONFIGURED' ? 'KIS API 미설정 — .env 확인' : '시세 데이터 없음 (상장 전 또는 거래 정지)';
+          if (cur) cur.textContent = '-';
+          return;
+        }
+        const rows = payload.data.rows;
+        const last = rows[rows.length - 1];
+        if (cur) {
+          const chg = r.offeringPrice ? ((last.close / r.offeringPrice - 1) * 100) : null;
+          cur.outerHTML = `<span class="tabular-nums">${formatNum(last.close)}원</span>` +
+            (chg === null ? '' : ` <span class="text-xs ${chg >= 0 ? 'pos' : 'neg'}">(공모가比 ${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%)</span>`);
+        }
+        const canvas = document.getElementById('sd-daily-canvas');
+        if (!canvas || !window.Chart) return;
+        if (_sdChart) { _sdChart.destroy(); _sdChart = null; }
+        const styles = getComputedStyle(document.documentElement);
+        const accent = styles.getPropertyValue('--accent').trim();
+        _sdChart = new Chart(canvas, {
+          type: 'line',
+          data: {
+            labels: rows.map(x => x.date.slice(5)),
+            datasets: [{
+              data: rows.map(x => x.close),
+              borderColor: accent, borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false,
+            }],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { ticks: { maxTicksLimit: 6 } } },
+          },
+        });
+        if (status) status.textContent = `${rows[0].date} ~ ${last.date} · ${rows.length}일`;
+      } catch (e) {
+        if (status) status.textContent = '시세 조회 실패 — serve.py 실행 여부를 확인하세요.';
+        if (cur) cur.textContent = '-';
+      }
+    }
+
+    async function _sdLoadNews(r) {
+      const body = document.getElementById('sd-news-body');
+      if (!body) return;
+      // DART 공시 (전사 피드 캐시에서 종목 바인딩) + 네이버 뉴스 검색
+      const dartItems = (_newsCache.dart || []).filter(it => it.corp && r.name && (it.corp.includes(r.name) || r.name.includes(it.corp))).slice(0, 4);
+      let naverItems = [];
+      let naverNote = '';
+      // 종목 빠른 전환 시 이전 요청 취소 (경쟁조건 — 직전 종목 응답이 현재 DOM 오염 방지)
+      if (_sdNewsAbort) _sdNewsAbort.abort();
+      _sdNewsAbort = new AbortController();
+      const _signal = _sdNewsAbort.signal;
+      try {
+        const res = await fetch(`/api/news/search?q=${encodeURIComponent(r.name)}&display=8`, { signal: _signal });
+        const json = await res.json();
+        if (json.error === 'naver_keys_missing') {
+          naverNote = '네이버 검색 API 키 미설정 — .env 에 NAVER_NEWS_CLIENT_ID / NAVER_NEWS_CLIENT_SECRET 입력 후 serve.py 재시작.';
+        } else if (json.error) {
+          naverNote = `네이버 뉴스 조회 불가 (${json.error}).`;
+        } else {
+          naverItems = (json.items || []).slice(0, 8);
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') return;  // 다른 종목으로 전환됨 — 현재 렌더 중단
+        naverNote = '뉴스 조회 실패 — serve.py 실행 여부를 확인하세요.';
+      }
+      const rows = [
+        ...dartItems.map(it => ({ src: 'DART', cls: 'news-src--dart', title: it.title, link: it.link, time: it.time })),
+        ...naverItems.map(it => ({ src: '네이버', cls: 'news-src--news', title: it.title, link: it.link, time: it.pubDate })),
+      ];
+      if (!rows.length) {
+        body.innerHTML = `<div class="text-xs text-[var(--muted)] py-2" style="word-break:keep-all">${naverNote || '관련 뉴스·공시가 없습니다.'}</div>`;
+        return;
+      }
+      body.innerHTML = rows.map(it => `
+        <a href="${escHtml(_safeUrl(it.link))}" target="_blank" rel="noopener noreferrer"
+           class="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[var(--row-hover)] min-w-0">
+          <span class="news-src ${it.cls}">${escHtml(it.src)}</span>
+          <span class="truncate text-sm">${escHtml(it.title)}</span>
+          <span class="ml-auto flex-shrink-0 text-xxs text-[var(--muted)] tabular-nums">${_timeAgo(it.time)}</span>
+        </a>`).join('') + (naverNote ? `<div class="text-xxs text-[var(--muted)] mt-2" style="word-break:keep-all">${naverNote}</div>` : '');
+    }
+
+    // ============================================================
+    // 사이드바 + 4-view 라우팅 (#/ 오늘, #/screener 종목, #/positions 내 포지션,
+    // #/analytics 분석) + 종목 상세 (#/stock/:key) — 레거시 view 이름/hash 호환
     // ============================================================
     const VIEW_MAP = {
-      dashboard:     { root: 'dashboard-root',     nav: 'nav-dashboard',     hash: '#/' },
-      advanced:      { root: 'advanced-root',      nav: 'nav-advanced',      hash: '#/advanced' },
-      participation: { root: 'participation-root', nav: 'nav-participation', hash: '#/participation' },
-      portfolio:     { root: 'portfolio-root',     nav: 'nav-portfolio',     hash: '#/portfolio' },
-      regret:        { root: 'regret-root',        nav: 'nav-regret',        hash: '#/regret' },
+      today:     { root: 'dashboard-root', nav: 'nav-dashboard', hash: '#/' },
+      screener:  { root: 'screener-root',  nav: 'nav-screener',  hash: '#/screener' },
+      positions: { root: 'positions-root', nav: 'nav-positions', hash: '#/positions' },
+      analytics: { root: 'advanced-root',  nav: 'nav-advanced',  hash: '#/analytics' },
+      stock:     { root: 'stock-root',     nav: 'nav-screener',  hash: '#/stock' },
     };
-    function showView(view) {
-      const target = VIEW_MAP[view] || VIEW_MAP.dashboard;
+    const LEGACY_VIEW_TAB = { participation: 'participation', portfolio: 'portfolio', regret: 'regret' };
+    let _activePositionsTab = 'participation';
+    let _activeAdvancedTab = 'overview';  // JS 단일 소스 (HTML .active 와 desync 방지)
+
+    function showView(view, opts = {}) {
+      // 레거시 view 이름 호환 (구버전 onclick / 외부 코드)
+      if (view === 'dashboard') view = 'today';
+      else if (view === 'advanced') view = 'analytics';
+      else if (LEGACY_VIEW_TAB[view]) { opts = { tab: LEGACY_VIEW_TAB[view], ...opts }; view = 'positions'; }
+      const target = VIEW_MAP[view] || VIEW_MAP.today;
       // 모든 view hidden + nav active 초기화
       Object.values(VIEW_MAP).forEach(v => {
         document.getElementById(v.root)?.classList.add('hidden-view');
-        document.getElementById(v.nav)?.classList.remove('active');
+        const navItem = document.getElementById(v.nav);
+        navItem?.classList.remove('active');
+        navItem?.removeAttribute('aria-current');
       });
       document.getElementById(target.root)?.classList.remove('hidden-view');
-      document.getElementById(target.nav)?.classList.add('active');
-      if (window.location.hash !== target.hash) {
-        try { history.replaceState(null, '', target.hash); } catch (e) {}
+      const targetNav = document.getElementById(target.nav);
+      targetNav?.classList.add('active');
+      targetNav?.setAttribute('aria-current', 'page');  // a11y: 현재 화면 (F-01)
+      const newHash = view === 'stock' ? `#/stock/${encodeURIComponent(opts.key ?? '')}` : target.hash;
+      if (window.location.hash !== newHash) {
+        try { history.replaceState(null, '', newHash); } catch (e) {}
       }
-      // view별 진입 렌더
-      if (view === 'advanced') {
-        const activeTab = document.querySelector('.advanced-tab.active')?.dataset.advTab || 'heatmap';
+      // view별 진입 렌더 — 숨김 상태에서 생성된 차트/테이블은 진입 시 재생성
+      if (view === 'today') {
+        renderTodayBoard();
+      } else if (view === 'screener') {
+        renderPerformers();
+        renderTable();
+      } else if (view === 'analytics') {
+        const activeTab = _activeAdvancedTab;
         setAdvancedTab(activeTab);
         updateAdvSummary();
-      } else if (view === 'participation') {
-        renderParticipationView();
-      } else if (view === 'portfolio') {
-        renderPortfolioPanel(document.getElementById('portfolio-view-body'));
-      } else if (view === 'regret') {
-        renderRegretPanel(document.getElementById('regret-view-body'));
+      } else if (view === 'positions') {
+        setPositionsTab(opts.tab || _activePositionsTab);
+      } else if (view === 'stock') {
+        if (opts.key != null) renderStockDetail(opts.key);
       }
       if (window.matchMedia('(max-width: 1023px)').matches) closeSidebar();
       window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+
+    // 내 포지션 3탭 (참여 종목 / 포트폴리오 / 이때팔걸)
+    function setPositionsTab(tab) {
+      if (!['participation', 'portfolio', 'regret'].includes(tab)) tab = 'participation';
+      _activePositionsTab = tab;
+      document.querySelectorAll('[data-pos-tab]').forEach(el => {
+        const on = el.dataset.posTab === tab;
+        el.classList.toggle('active', on);
+        el.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      ['participation', 'portfolio', 'regret'].forEach(k => {
+        document.getElementById(`${k}-root`)?.classList.toggle('hidden-view', k !== tab);
+      });
+      if (tab === 'participation') renderParticipationView();
+      else if (tab === 'portfolio') renderPortfolioPanel(document.getElementById('portfolio-view-body'));
+      else if (tab === 'regret') renderRegretPanel(document.getElementById('regret-view-body'));
     }
 
     function toggleSidebar() {
@@ -5145,7 +5656,7 @@
             <div class="text-sm font-medium truncate">${r.name}</div>
             <div class="text-xxs text-[var(--muted)]">${r.listingDate} · ${r.market} · ${r.sector}</div>
           </div>
-          <button type="button" class="star-btn active" onclick="toggleWatchlistItem('${r.name.replace(/'/g, "\\'")}')" aria-label="${r.name} 워치리스트에서 제거" title="제거">
+          <button type="button" class="star-btn active" onclick="toggleWatchlistItem('${r.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" aria-label="${r.name} 워치리스트에서 제거" title="제거">
             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.539 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
           </button>
         </div>
@@ -5521,9 +6032,7 @@
       if (!body) return;
       if (btn) btn.style.opacity = '0.4';
       try {
-        const res = await fetch('/api/market' + (force ? `?t=${Date.now()}` : ''));
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
+        const payload = await _getMarket(force);
         if (!payload.ok) {
           body.innerHTML = `<div class="text-xxs text-[var(--muted)]" style="word-break:keep-all">${payload.error === 'KIS_NOT_CONFIGURED' ? 'KIS API 미설정' : '시세 조회 실패'}</div>`;
           return;
@@ -5570,9 +6079,7 @@
       `;
       const content = document.getElementById('market-content');
       try {
-        const res = await fetch('/api/market');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
+        const payload = await _getMarket();
         if (!payload.ok) {
           if (payload.error === 'KIS_NOT_CONFIGURED') {
             content.innerHTML = `<div class="text-sm text-[var(--neg)] p-3 rounded border border-[var(--neg)]" style="word-break:keep-all">
@@ -5766,19 +6273,66 @@
     // ============================================================
     // 고급 분석 4 모듈 — 탭 전환 + 렌더
     // ============================================================
+    // a11y: 탭↔패널 관계 wiring (F-02 aria-controls/role=tabpanel/aria-labelledby).
+    // HTML 20여 곳 수정 대신 init 에서 일괄 연결.
+    function initTabA11y() {
+      document.querySelectorAll('[data-adv-tab]').forEach(tab => {
+        const key = tab.dataset.advTab;
+        const panel = document.querySelector(`[data-adv-panel="${key}"]`);
+        if (!panel) return;
+        const tabId = `advtab-${key}`, panelId = `advpanel-${key}`;
+        tab.id = tabId; tab.setAttribute('aria-controls', panelId);
+        panel.id = panelId; panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', tabId); panel.setAttribute('tabindex', '0');
+      });
+      document.querySelectorAll('[data-pos-tab]').forEach(tab => {
+        const key = tab.dataset.posTab;
+        const panel = document.getElementById(`${key}-root`);
+        if (!panel) return;
+        const tabId = `postab-${key}`;
+        tab.id = tabId; tab.setAttribute('aria-controls', `${key}-root`);
+        panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tabId);
+      });
+    }
+
+    // a11y: role=tablist 화살표/Home/End 키 이동 (F-03). 위임 핸들러 — 동적 탭에도 적용.
+    function initTablistKeyboard() {
+      document.querySelectorAll('[role="tablist"]').forEach(tablist => {
+        if (tablist._kbBound) return;
+        tablist._kbBound = true;
+        tablist.addEventListener('keydown', e => {
+          const tabs = [...tablist.querySelectorAll('[role="tab"]')];
+          const idx = tabs.indexOf(document.activeElement);
+          if (idx === -1) return;
+          let next = idx;
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % tabs.length;
+          else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + tabs.length) % tabs.length;
+          else if (e.key === 'Home') next = 0;
+          else if (e.key === 'End') next = tabs.length - 1;
+          else return;
+          e.preventDefault();
+          tabs[next].focus();
+          tabs[next].click();
+        });
+      });
+    }
+
     function setAdvancedTab(tab) {
+      _activeAdvancedTab = tab;
       document.querySelectorAll('.advanced-tab').forEach(el => {
         const on = el.dataset.advTab === tab;
         el.classList.toggle('active', on);
         el.setAttribute('aria-selected', on ? 'true' : 'false');  // a11y: role=tab
       });
       document.querySelectorAll('.advanced-panel').forEach(el => el.classList.toggle('active', el.dataset.advPanel === tab));
-      if (tab === 'heatmap') renderAdvHeatmap();
-      else if (tab === 'corr') renderAdvCorrelation();
-      else if (tab === 'violin') renderAdvViolin();
-      else if (tab === 'parallel') renderAdvParallel();
-      else if (tab === 'band') renderAdvBand();
-      else if (tab === 'lockup') renderAdvLockup();
+      if (tab === 'overview') { renderCharts(); return; }   // Chart.js — 진입 시 재생성 (숨김 0-size 방지)
+      if (tab === 'backtest') { runBacktest(); return; }
+      // 이하 Plotly 탭 — 지연 로딩 후 렌더 (초기 TTI 개선). 로드 실패 시 조용히 무시.
+      const _plotlyRender = {
+        heatmap: renderAdvHeatmap, corr: renderAdvCorrelation,
+        parallel: renderAdvParallel, band: renderAdvBand, lockup: renderAdvLockup,
+      }[tab];
+      if (_plotlyRender) loadPlotly().then(() => _plotlyRender()).catch(() => {});
     }
 
     function _advPool() { return (Array.isArray(filteredData) && filteredData.length ? filteredData : ipoData) || []; }
@@ -5929,63 +6483,6 @@
         const sign = maxAbs.v >= 0 ? '양의' : '음의';
         const tone = maxAbs.v >= 0 ? 'pos' : 'neg';
         ins.innerHTML = `가장 강한 상관: <strong>${metrics[maxAbs.i].label} ↔ ${metrics[maxAbs.j].label}</strong> ${sign} 상관 <strong class="${tone}">r = ${maxAbs.v.toFixed(3)}</strong>. <span class="text-xxs">|r|≥0.3 의미 있음 일반 기준. p&lt;0.01 표시는 ★.</span>`;
-      }
-    }
-
-    // ---------- 모듈 D: Violin 분포 비교 ----------
-    function _binBy(arr, key, bins = 3, labels = ['저','중','고']) {
-      const valid = arr.filter(r => r?.[key] !== null && r?.[key] !== undefined && !Number.isNaN(Number(r[key]))).map(r => Number(r[key]));
-      const sorted = [...valid].sort((a,b)=>a-b);
-      const q = (frac) => sorted[Math.floor(sorted.length * frac)] ?? 0;
-      const t1 = q(1/bins), t2 = q(2/bins);
-      return (v) => { if (v <= t1) return labels[0]; if (v <= t2) return labels[1]; return labels[2]; };
-    }
-    function renderAdvViolin() {
-      const host = document.getElementById('adv-violin-host');
-      if (!host || !window.Plotly) return;
-      const group = document.getElementById('adv-violin-group')?.value || 'market';
-      const metric = document.getElementById('adv-violin-metric')?.value || 'firstDayReturn';
-      const pool = _advPool();
-      let groupFn, groupLabels;
-      if (group === 'market') { groupFn = r => r.market || '?'; groupLabels = ['KOSPI', 'KOSDAQ']; }
-      else if (group === 'upperLimitHit') { groupFn = r => r.upperLimitHit ? '상한가 달성' : '미달'; groupLabels = ['상한가 달성', '미달']; }
-      else if (group === 'lockupBin') {
-        const bin = _binBy(pool, 'lockupRate', 3, ['락업 저', '락업 중', '락업 고']);
-        groupFn = r => (r.lockupRate === null || r.lockupRate === undefined) ? null : bin(Number(r.lockupRate));
-        groupLabels = ['락업 저', '락업 중', '락업 고'];
-      } else if (group === 'sizeBin') {
-        const bin = _binBy(pool, 'offeringAmount', 3, ['소형', '중형', '대형']);
-        groupFn = r => (r.offeringAmount === null || r.offeringAmount === undefined) ? null : bin(Number(r.offeringAmount));
-        groupLabels = ['소형', '중형', '대형'];
-      }
-      const traces = groupLabels.map(g => {
-        const ys = pool.filter(r => groupFn(r) === g).map(r => Number(r[metric])).filter(v => !Number.isNaN(v));
-        return { type: 'violin', name: g, y: ys, box: { visible: true }, meanline: { visible: true },
-          points: 'suspectedoutliers', marker: { size: 3, opacity: 0.5 }, line: { width: 1.5 } };
-      });
-      const styles = getComputedStyle(document.documentElement);
-      const bg = styles.getPropertyValue('--card').trim();
-      const text = styles.getPropertyValue('--text').trim();
-      const muted = styles.getPropertyValue('--muted').trim();
-      const grid = styles.getPropertyValue('--border').trim();
-      Plotly.purge(host);
-      Plotly.newPlot(host, traces, {
-        margin: { l: 60, r: 30, t: 20, b: 60 },
-        paper_bgcolor: bg, plot_bgcolor: bg,
-        font: { color: text, family: 'Inter, Pretendard, sans-serif' },
-        xaxis: { color: muted, gridcolor: grid },
-        yaxis: { color: muted, gridcolor: grid, zerolinecolor: muted },
-        showlegend: false, violingap: 0.3,
-      }, { responsive: true, displayModeBar: false });
-      // 인사이트: 그룹 평균 비교
-      const stats = groupLabels.map(g => {
-        const ys = pool.filter(r => groupFn(r) === g).map(r => Number(r[metric])).filter(v => !Number.isNaN(v));
-        const m = ys.length ? ys.reduce((s,v)=>s+v,0)/ys.length : null;
-        return { g, n: ys.length, m };
-      });
-      const ins = document.getElementById('adv-violin-insight');
-      if (ins) {
-        ins.innerHTML = stats.map(s => `<strong>${s.g}</strong> n=${s.n} · 평균 <span class="${s.m>=0?'pos':'neg'}">${s.m === null ? '-' : s.m.toFixed(1)+'%'}</span>`).join(' · ');
       }
     }
 
@@ -6272,7 +6769,7 @@
     // 종목 상세 모달에 ☆ 워치리스트 토글 버튼 (showDetail 안에서 호출하는 helper)
     function getWatchlistStarHTML(row) {
       const isStarred = getWatchlist().has(row.name);
-      return `<button type="button" class="star-btn ${isStarred ? 'active' : ''}" onclick="toggleWatchlistItem('${row.name.replace(/'/g, "\\'")}'); this.classList.toggle('active');"
+      return `<button type="button" class="star-btn ${isStarred ? 'active' : ''}" onclick="toggleWatchlistItem('${row.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'); this.classList.toggle('active');"
               aria-label="${isStarred ? '워치리스트에서 제거' : '워치리스트에 추가'}"
               title="${isStarred ? '워치리스트에서 제거' : '워치리스트에 추가'}"
               style="font-size: 1.125rem; vertical-align: middle; margin-left: 0.375rem;">
@@ -6351,14 +6848,25 @@
       // 캘린더 배지 (D-7 이내 항목 수) — renderCalendarPanel 호출 시 자동 갱신
       try { renderCalendarPanel(document.createElement('div')); } catch (e) {}
 
-      // Hash 라우팅 (#/, #/advanced, #/participation, #/portfolio, #/regret)
-      const initialHash = window.location.hash;
-      const initMap = { '#/advanced': 'advanced', '#/participation': 'participation', '#/portfolio': 'portfolio', '#/regret': 'regret' };
-      if (initMap[initialHash]) showView(initMap[initialHash]);
+      // Hash 라우팅 — 4-view + 종목 상세(#/stock/:key) + 레거시 hash 호환
+      function routeFromHash(h) {
+        if (h && h.startsWith('#/stock/')) return { view: 'stock', opts: { key: decodeURIComponent(h.slice(8)) } };
+        const map = {
+          '#/screener':      { view: 'screener' },
+          '#/positions':     { view: 'positions' },
+          '#/analytics':     { view: 'analytics' },
+          '#/advanced':      { view: 'analytics' },
+          '#/participation': { view: 'positions', opts: { tab: 'participation' } },
+          '#/portfolio':     { view: 'positions', opts: { tab: 'portfolio' } },
+          '#/regret':        { view: 'positions', opts: { tab: 'regret' } },
+        };
+        return map[h] || { view: 'today' };
+      }
+      const initRoute = routeFromHash(window.location.hash);
+      if (initRoute.view !== 'today') showView(initRoute.view, initRoute.opts || {});
       window.addEventListener('hashchange', () => {
-        const h = window.location.hash;
-        const map = { '#/advanced': 'advanced', '#/participation': 'participation', '#/portfolio': 'portfolio', '#/regret': 'regret' };
-        showView(map[h] || 'dashboard');
+        const r = routeFromHash(window.location.hash);
+        showView(r.view, r.opts || {});
       });
       // 대시보드 상단 큰 마켓 카드 + KOSPI MA200 sparkline (초기 1회 + 5분마다)
       if (typeof renderMarketHero === 'function') renderMarketHero();
@@ -6379,6 +6887,18 @@
       }
       // 일일 디브리프 위젯 (사이드바 최상단) — ipoData 기반, fetch 불필요
       if (typeof renderDailyBrief === 'function') renderDailyBrief();
+      initTabA11y();          // a11y: 탭↔패널 aria 연결
+      initTablistKeyboard();  // a11y: 탭 화살표 키 이동
+      loadPlotly().catch(() => {});  // perf: 초기 렌더 후 백그라운드 선로딩 (고급분석 첫 진입 지연 완화)
+      // 오늘 보드 (외부 일정 /api/ipo/schedule) + 뉴스 피드 (DART + RSS) — Phase 2/3
+      if (typeof fetchIpoSchedule === 'function') fetchIpoSchedule();
+      if (typeof renderNewsFeed === 'function') {
+        renderNewsFeed();
+        if (_newsFeedTimer) clearInterval(_newsFeedTimer);
+        _newsFeedTimer = setInterval(() => {
+          if (document.visibilityState === 'visible') renderNewsFeed();  // perf: 비활성 탭 skip
+        }, 10 * 60 * 1000);
+      }
       // 참여 종목 배지 초기 동기화
       if (typeof updateParticipationBadge === 'function') updateParticipationBadge();
       // 포트폴리오 카운트 배지 동기화
@@ -6427,6 +6947,11 @@
       }
       const strictIndicator = document.getElementById('strict-indicator');
       if (strictIndicator) strictIndicator.classList.toggle('hidden', !activeFilters.strictNewOnly);
+      // AI 점수 / 상장 상태 칩
+      document.querySelectorAll('#ai-score-filters .filter-chip').forEach(el =>
+        el.classList.toggle('active', Number(el.dataset.ai) === activeFilters.minAiScore));
+      document.querySelectorAll('#listing-status-filters .filter-chip').forEach(el =>
+        el.classList.toggle('active', el.dataset.status === activeFilters.listingStatus));
       if (typeof updateReturnRangeLabel === 'function') updateReturnRangeLabel();
     }
 
