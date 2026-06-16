@@ -1,0 +1,33 @@
+# Render Blueprint — IPO 대시보드 무료 웹서비스 배포
+# 사용: Render → New → Blueprint → 이 레포 선택. 키는 대시보드에서 입력(아래 sync:false).
+# 키는 절대 이 파일/레포에 적지 않는다 (sync:false = Render 대시보드에서만 설정).
+services:
+  - type: web
+    name: ipo-dashboard
+    runtime: python
+    plan: free
+    region: singapore          # 무료 가용 리전 중 한국 최근접
+    buildCommand: pip install -r requirements-server.txt
+    startCommand: python scripts/serve.py
+    healthCheckPath: /api/ping
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: APP_USERNAME       # Basic Auth 사용자명 (팀 공유)
+        value: team
+      - key: APP_PASSWORD       # Basic Auth 비밀번호 — 회사 인원에게만 공유
+        sync: false
+      - key: DART_API_KEY
+        sync: false
+      - key: KIS_APP_KEY
+        sync: false
+      - key: KIS_APP_SECRET
+        sync: false
+      - key: KIS_USE_PAPER
+        value: "true"
+      - key: KRX_API_KEY
+        sync: false
+      - key: NAVER_NEWS_CLIENT_ID
+        sync: false
+      - key: NAVER_NEWS_CLIENT_SECRET
+        sync: false

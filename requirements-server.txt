@@ -1,0 +1,6 @@
+# Render/배포용 — 서버 구동 최소 의존성.
+# 전체 데이터 파이프라인(추출/보강)은 requirements.txt 사용 (로컬 전용).
+# Render 에서는 새로고침(XLSX 재추출)이 동작하지 않으므로 무거운 의존성 제외 → 빌드 단축.
+requests>=2.31
+python-dotenv>=1.0
+finance-datareader>=0.9

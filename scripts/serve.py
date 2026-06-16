@@ -19,6 +19,8 @@ Local dev server with /api/refresh-* endpoints.
     /api/refresh-all   — XLSX → DART 순차 실행
 """
 from __future__ import annotations
+import base64
+import hmac
 import http.server
 import json
 import os
@@ -366,6 +368,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
         super().end_headers()
 
+    def _auth_ok(self) -> bool:
+        """APP_PASSWORD 가 설정돼 있으면 HTTP Basic Auth 요구 (배포/공유용).
+        미설정이면 인증 비활성 (로컬 dev). 상수시간 비교로 타이밍 공격 방어."""
+        pw = os.environ.get("APP_PASSWORD")
+        if not pw:
+            return True
+        user = os.environ.get("APP_USERNAME", "team")
+        hdr = self.headers.get("Authorization", "")
+        if hdr.startswith("Basic "):
+            try:
+                u, _, p = base64.b64decode(hdr[6:]).decode("utf-8", "replace").partition(":")
+                if hmac.compare_digest(u, user) and hmac.compare_digest(p, pw):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def _require_auth(self):
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="IPO Dashboard"')
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def _send_json(self, payload: dict, status: int = 200):
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
@@ -385,6 +411,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if not self._auth_ok():
+            return self._require_auth()
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/api/ping":
@@ -737,6 +765,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return {"items": items}
 
     def do_POST(self):
+        if not self._auth_ok():
+            return self._require_auth()
         if self.path == "/api/refresh-xlsx":
             self._send_json(self._refresh_xlsx())
         elif self.path == "/api/refresh-dart":
@@ -791,8 +821,13 @@ def main():
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except AttributeError:
         pass
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    addr = ("127.0.0.1", port)
+    # 포트: 클라우드(Render 등)는 $PORT 주입. 로컬은 인자 또는 8000.
+    port = int(os.environ.get("PORT") or (sys.argv[1] if len(sys.argv) > 1 else 8000))
+    # 바인딩: $PORT 가 있으면(클라우드) 0.0.0.0, 아니면 로컬 안전하게 127.0.0.1. HOST 로 override.
+    host = os.environ.get("HOST") or ("0.0.0.0" if os.environ.get("PORT") else "127.0.0.1")
+    addr = (host, port)
+    if os.environ.get("APP_PASSWORD"):
+        print("[serve] 접근 보호 활성: HTTP Basic Auth (APP_USERNAME/APP_PASSWORD)")
     xlsx = default_xlsx()
     dart_loaded = bool(os.environ.get("DART_API_KEY"))
     print(f"[serve] http://{addr[0]}:{port}   (root={ROOT})")
