@@ -411,10 +411,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if not self._auth_ok():
-            return self._require_auth()
         parsed = urlparse(self.path)
         path = parsed.path
+        # 무인증 헬스체크 (Render 등) — 민감정보 없음. Auth 게이트보다 먼저 처리.
+        if path == "/healthz":
+            body = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if not self._auth_ok():
+            return self._require_auth()
         if path == "/api/ping":
             kis = get_kis()
             self._send_json({
