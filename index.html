@@ -1153,20 +1153,20 @@
       <div id="news-feed-body" class="text-sm"><div class="text-xxs text-[var(--muted)]">로딩 중…</div></div>
     </div>
 
-    <!-- 락업 만료 캘린더 (A2) — listingDate + 6개월 (한국 IPO 표준) 기준 D-day -->
+    <!-- 의무보유확약(락업) 해제 일정 — 구간별(상장일 + 15/30/90/180일) 종목별 해제일 -->
     <div class="card p-5 mb-6" id="lockup-calendar-card">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
-          <div class="section-title mb-0">락업 만료 임박</div>
+          <div class="section-title mb-0">의무보유확약(락업) 해제 일정</div>
           <div class="text-xxs text-[var(--muted)] mt-0.5" style="word-break:keep-all">
-            의무보유확약 6개월 기준 D-day · 임박 종목 매물 출회 압력 사전 인지
+            구간 선택 → 상장일 + N일 해제일이 다가오는 종목 (D-day 순) · 매물 출회 압력 사전 인지
           </div>
         </div>
-        <div class="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="락업 만료 범위 선택">
-          <button type="button" class="filter-chip active" data-lockup-window="15" onclick="setLockupWindow(15)" role="tab">15일 이내</button>
-          <button type="button" class="filter-chip" data-lockup-window="30" onclick="setLockupWindow(30)" role="tab">1개월 이내</button>
-          <button type="button" class="filter-chip" data-lockup-window="90" onclick="setLockupWindow(90)" role="tab">3개월 이내</button>
-          <button type="button" class="filter-chip" data-lockup-window="180" onclick="setLockupWindow(180)" role="tab">6개월 이내</button>
+        <div class="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="확약 해제 구간 선택">
+          <button type="button" class="filter-chip" data-lockup-window="15" onclick="setLockupWindow(15)" role="tab">15일</button>
+          <button type="button" class="filter-chip" data-lockup-window="30" onclick="setLockupWindow(30)" role="tab">30일</button>
+          <button type="button" class="filter-chip active" data-lockup-window="90" onclick="setLockupWindow(90)" role="tab">90일</button>
+          <button type="button" class="filter-chip" data-lockup-window="180" onclick="setLockupWindow(180)" role="tab">180일</button>
         </div>
       </div>
       <div id="lockup-calendar-body" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
@@ -2696,23 +2696,40 @@
 
     // 락업 만료일 계산 (한국 IPO 표준 — 6개월 default, 시트에 명시되면 그 값 사용)
     // 의무보유확약은 보통 1/3/6/12 개월 단위. 사용자 시트는 '비율' 만 보유하므로 6개월 default.
-    function getLockupExpiry(r, defaultMonths = 6) {
+    // 의무보유확약(= 락업 = 확약) — 기관 확약은 15·30·90·180일 구간으로 분산 해제된다.
+    // 보유 데이터(lockupRate)는 '총 확약 비율' 단일 값이라 구간별 % 는 없음 →
+    // 구간별 "해제일·D-day" 를 종목별로 각각 산출 (상장일 + N일). 단일 6개월 일괄 방식 폐기.
+    const LOCKUP_PERIODS = [
+      { days: 15, label: '15일' },
+      { days: 30, label: '30일' },
+      { days: 90, label: '90일' },
+      { days: 180, label: '180일' },
+    ];
+    function getLockupDate(r, days) {
       if (!r || !r.listingDate) return null;
       const ld = new Date(r.listingDate + 'T00:00:00');
       if (Number.isNaN(ld.getTime())) return null;
-      const months = (r.lockupMonths && Number.isFinite(r.lockupMonths)) ? r.lockupMonths : defaultMonths;
-      const exp = new Date(ld);
-      exp.setMonth(exp.getMonth() + months);
-      return exp;
+      const d = new Date(ld);
+      d.setDate(d.getDate() + days);
+      return d;
     }
-
-    function getLockupDday(r) {
-      const exp = getLockupExpiry(r);
-      if (!exp) return null;
-      const now = new Date();
-      const ms = exp - now;
-      return Math.round(ms / (1000 * 60 * 60 * 24));
+    function getLockupDday(r, days = 180) {
+      const d = getLockupDate(r, days);
+      if (!d) return null;
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      return Math.round((d - now) / 86400000);
     }
+    // 종목별 4구간 해제 스케줄 [{days,label,date(Date),dday}]
+    function getLockupReleases(r) {
+      return LOCKUP_PERIODS
+        .map(p => ({ days: p.days, label: p.label, date: getLockupDate(r, p.days), dday: getLockupDday(r, p.days) }))
+        .filter(x => x.date);
+    }
+    function _fmtDate(d) {
+      return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+    }
+    // 최종(180일) 만료 — 기존 호출 호환 (고급분석 락업해제후 가격 등). 6개월(월) → 180일로 통일.
+    function getLockupExpiry(r) { return getLockupDate(r, 180); }
 
     // 상장일로부터 오늘까지 경과 일수 (D+N). 미래 상장이면 음수.
     function getDaysSinceListing(r) {
@@ -3096,14 +3113,10 @@
     function runAlertCheck() {
       // D-7 락업 임박 (참여 종목만 + 락업 < 30% 미설정 시 일반 적용)
       const part = getParticipation();
-      const today = new Date(); today.setHours(0,0,0,0);
-      const week = 7 * 86400000;
-      const imminentLockup = (ipoData || []).filter(r => {
-        const exp = typeof getLockupExpiry === 'function' ? getLockupExpiry(r) : null;
-        if (!exp) return false;
-        const diff = exp - today;
-        return diff >= 0 && diff <= week;
-      });
+      // 4구간(15/30/90/180일) 중 하나라도 D-7 이내 해제 임박
+      const imminentLockup = (ipoData || []).filter(r =>
+        getLockupReleases(r).some(x => x.dday !== null && x.dday >= 0 && x.dday <= 7)
+      );
       const partLockup = imminentLockup.filter(r => part[r.name]?.participated);
       if (partLockup.length > 0) {
         pushToast(`⚠ 참여 종목 ${partLockup.length}건이 D-7 이내 락업 해제: ${partLockup.slice(0,3).map(r=>r.name).join(', ')}${partLockup.length>3?' 외':''}`, 'danger', 8000);
@@ -4172,10 +4185,9 @@
       // 락업 비율: lockupRate 있는 행의 평균. 만료 D-30 임박 종목 수 동시 산출.
       const lockupValid = filteredData.filter(r => r.lockupRate !== null && r.lockupRate !== undefined);
       const avgLockup = lockupValid.length ? lockupValid.reduce((s, r) => s + r.lockupRate, 0) / lockupValid.length : 0;
-      const lockupImminent = filteredData.filter(r => {
-        const d = getLockupDday(r);
-        return d !== null && d >= 0 && d <= 30;
-      }).length;
+      const lockupImminent = filteredData.filter(r =>
+        getLockupReleases(r).some(x => x.dday !== null && x.dday >= 0 && x.dday <= 30)
+      ).length;
 
       const styles = getComputedStyle(document.documentElement);
       const POS = styles.getPropertyValue('--pos').trim() || 'oklch(0.56 0.17 142)';
@@ -4937,7 +4949,7 @@
     // 락업 만료 캘린더 (A2)
     // 한국 IPO 의무보유확약 기준 — 보통 1/3/6/12 개월. 사용자 시트는 비율만 보유 → 6개월 default.
     // ============================================================
-    let _lockupWindow = 15;  // 기본 15일 이내 (가장 임박)
+    let _lockupWindow = 90;  // 기본 선택 구간: 90일 확약 해제 (코호트 노출 균형)
 
     function setLockupWindow(days) {
       _lockupWindow = days;
@@ -4954,43 +4966,44 @@
       const empty = document.getElementById('lockup-calendar-empty');
       if (!body) return;
 
-      // 락업 만료가 미래(D≥0) 이며 _lockupWindow 이내인 종목만, D-day 오름차순 (가까운 것 먼저)
+      // 선택 구간(_lockupWindow: 15/30/90/180일)의 해제일이 다가오는(D≥0) 종목, D-day 오름차순.
+      // 최근 상장 코호트가 자연히 노출됨 (오래 전 상장 종목은 해당 구간이 이미 지나 제외).
+      const P = _lockupWindow;
       const candidates = filteredData
-        .map(r => ({ row: r, dday: getLockupDday(r) }))
-        .filter(x => x.dday !== null && x.dday >= 0 && x.dday <= _lockupWindow)
+        .map(r => ({ row: r, dday: getLockupDday(r, P), date: getLockupDate(r, P) }))
+        .filter(x => x.dday !== null && x.dday >= 0)
         .sort((a, b) => a.dday - b.dday)
-        .slice(0, 12); // 최대 12건 (정보 밀도 균형)
+        .slice(0, 15);
 
       if (candidates.length === 0) {
         body.innerHTML = '';
+        empty.textContent = `다가오는 ${P}일 확약 해제 종목이 없습니다. 다른 구간(15/30/90/180일)을 보거나 최근 상장 종목을 확인하세요.`;
         empty.classList.remove('hidden');
         return;
       }
       empty.classList.add('hidden');
 
-      body.innerHTML = candidates.map(({ row: r, dday }) => {
+      body.innerHTML = candidates.map(({ row: r, dday, date }) => {
         const lr = (r.lockupRate ?? null);
         const lrText = lr !== null ? `${Number(lr).toFixed(1)}%` : '—';
         const lrTone = lr === null ? 'text-[var(--muted)]' : (lr >= 30 ? 'pos' : lr <= 5 ? 'neg' : '');
         const ddayTone = dday <= 30 ? 'neg' : dday <= 90 ? 'warning-text' : 'text-[var(--muted)]';
-        const fdr = r.firstDayReturn ?? 0;
-        const fdrTone = fdr >= 0 ? 'pos' : 'neg';
-        const exp = getLockupExpiry(r);
-        const expText = exp ? exp.toISOString().slice(0, 10) : '';
+        const fdr = r.firstDayReturn ?? null;
+        const fdrTone = fdr == null ? 'text-[var(--muted)]' : fdr >= 0 ? 'pos' : 'neg';
         return `
           <div class="border border-[var(--border)] rounded-md p-2.5 hover:bg-[var(--row-hover)] transition-colors cursor-pointer focus-ring"
                tabindex="0" role="button"
-               aria-label="${r.name} 락업 만료 D-${dday}"
-               onclick="showDetail(${r.id})"
-               onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showDetail(${r.id})}">
+               aria-label="${escHtml(r.name)} ${P}일 확약 해제 D-${dday}"
+               onclick="openStockDetail(${r.id})"
+               onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStockDetail(${r.id})}">
             <div class="flex items-center justify-between gap-2 mb-1">
               <div class="font-medium text-sm truncate flex items-center min-w-0">
-                <span class="truncate">${r.name}</span>${getNaverLinkHTML(r)}
+                <span class="truncate">${escHtml(r.name)}</span>${getNaverLinkHTML(r)}
               </div>
               <span class="text-xxs font-semibold ${ddayTone} tabular-nums">D-${dday}</span>
             </div>
             <div class="flex items-center justify-between text-xxs">
-              <span class="text-[var(--muted)]">${expText} · 락업 <span class="${lrTone}">${lrText}</span></span>
+              <span class="text-[var(--muted)]">${_fmtDate(date)} · ${P}일 확약 · 총 <span class="${lrTone}">${lrText}</span></span>
               <span class="${fdrTone} tabular-nums">${formatPct(fdr)}</span>
             </div>
           </div>
@@ -5064,11 +5077,8 @@
     }
     function _fmtMD(s) { return s && s.length >= 10 ? `${parseInt(s.slice(5, 7), 10)}.${s.slice(8, 10)}` : ''; }
     function _lockupDateOf(r) {
-      if (!r?.listingDate) return null;
-      const d = new Date(r.listingDate + 'T00:00:00');
-      if (Number.isNaN(d.getTime())) return null;
-      d.setMonth(d.getMonth() + 6);  // 의무보유확약 6개월 (한국 IPO 표준)
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // 타임라인 최종 마커용 — 180일 확약 해제일 (구간별 전체는 getLockupReleases)
+      return _fmtDate(getLockupDate(r, 180));
     }
 
     function _collectTodayEvents() {
@@ -5085,9 +5095,11 @@
         if (dd !== null && dd >= 0 && dd <= 14 && !ev.some(e => e.type === '상장' && e.name === r.name)) {
           ev.push({ type: '상장', name: r.name, date: r.listingDate, id: r.id });
         }
-        const ls = _lockupDateOf(r);
-        const ld = _dDay(ls);
-        if (ld !== null && ld >= 0 && ld <= 14) ev.push({ type: '락업해제', name: r.name, date: ls, id: r.id });
+        getLockupReleases(r).forEach(x => {
+          if (x.dday !== null && x.dday >= 0 && x.dday <= 14) {
+            ev.push({ type: '락업해제', name: `${r.name} (${x.label})`, date: _fmtDate(x.date), id: r.id });
+          }
+        });
       });
       return ev;
     }
@@ -5279,12 +5291,29 @@
     function _sdMetric(label, valueHtml) {
       return `<div class="card p-4"><div class="kpi-label mb-1">${label}</div><div class="text-lg font-semibold tabular-nums">${valueHtml}</div></div>`;
     }
+    function _sdLockupScheduleHTML(r) {
+      const rels = getLockupReleases(r);
+      if (!rels.length) return '<div class="text-sm text-[var(--muted)]">상장일 미정 — 확약 해제일 산출 불가</div>';
+      const cards = rels.map(x => {
+        const past = x.dday < 0;
+        const tone = past ? 'text-[var(--muted)]' : (x.dday <= 30 ? 'neg' : x.dday <= 90 ? 'warning-text' : 'pos');
+        const ddayText = past ? `해제됨 (D+${Math.abs(x.dday)})` : `D-${x.dday}`;
+        return `<div class="rounded-md border border-[var(--border)] p-2.5">
+            <div class="kpi-label">${x.label} 확약</div>
+            <div class="text-sm font-semibold tabular-nums mt-0.5">${_fmtDate(x.date)}</div>
+            <div class="text-xxs ${tone} tabular-nums mt-0.5">${ddayText}</div>
+          </div>`;
+      }).join('');
+      return `<div class="grid grid-cols-2 md:grid-cols-4 gap-2">${cards}</div>
+        <div class="text-xxs text-[var(--muted)] mt-2" style="word-break:keep-all">※ 구간별 해제일(상장일 기준 산출). 구간별 확약 비율(15일 X%·30일 Y%…)은 현재 데이터 미수록 — 총 확약 비율만 제공.</div>`;
+    }
+
     function _sdTimelineHTML(r, sched) {
       const steps = [
         { label: '수요예측', date: sched?.demand_start || null, until: sched?.demand_end || null },
         { label: '청약', date: sched?.sub_start || null, until: sched?.sub_end || null },
         { label: '상장', date: r.listingDate || sched?.listing || null },
-        { label: '락업 해제 (6M)', date: _lockupDateOf(r) },
+        { label: '확약 180일', date: _lockupDateOf(r) },
       ].filter(s => s.date);
       if (steps.length < 2) {
         return `<div class="text-sm text-[var(--muted)]">일정 데이터 부족 — 상장일 ${escHtml(r.listingDate || '미정')}</div>`;
@@ -5347,6 +5376,10 @@
         <div class="card p-5 mb-4">
           <div class="section-title">일정 타임라인</div>
           ${_sdTimelineHTML(r, sched)}
+        </div>
+        <div class="card p-5 mb-4">
+          <div class="section-title">의무보유확약(락업) 해제 일정 <span class="text-xxs font-normal text-[var(--muted)]">상장일 + 15/30/90/180일 · 총 확약 ${r.lockupRate != null ? Number(r.lockupRate).toFixed(1) + '%' : '미상'}</span></div>
+          ${_sdLockupScheduleHTML(r)}
         </div>
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <div class="card p-5">
