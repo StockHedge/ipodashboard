@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
 """
-신규상장 라이브 수집 — XLSX 비의존, 다중 소스 조합.
+신규상장 라이브 수집 v2 — 38.co.kr 데스크탑 아카이브 기반 (XLSX 비의존).
 
-단일 무료 소스로는 "4/30 이후 신규상장 + 우리 분석 스키마"를 완전히 못 얻으므로 조합한다
-(교차 실측 2026-06 기준):
-  - 38(m.38.co.kr) fund.php : 공모주 정체성 + 확정/희망 공모가 + 주간사 (ETN/ETF 노이즈 없음).
-                              리스트행에 확정공모가가 있어 상세 fetch 불필요(속도↑). 단 상장일은 None.
-  - fdr.StockListing("KRX") : 종목명→종목코드/시장/현재가. 이 매칭이 곧 "이미 상장됨" 확인.
-  - KIS get_daily           : 첫 거래일 = 실제 상장일, 시초/종가/고가로 첫날·고가 수익률 산출.
+교차 실측(2026-06)으로 확정한 소스:
+  - 38 데스크탑 o=nw (신규상장 결과): 상장 후에도 목록에서 빠지지 않는 '아카이브' →
+    상장일·확정공모가·첫날 시초/종가 수익률. (이전 fund.php '진행중' 파이프라인은 상장 후
+    롤오프되어 최근 상장분/스팩을 통째로 누락했음 → 이 모듈로 교체.)
+  - 38 데스크탑 o=r1 (수요예측결과): 기관경쟁률 + 의무보유확약 비율(lockupRate) + 주간사 + 밴드.
+  - fdr.StockListing: 종목명→종목코드/시장 보조 (선택, SPAC 미매칭 시 KOSDAQ 기본).
 
-미상장(청약 예정)은 fdr 에 없으므로 자동 skip → /api/ipo/schedule(오늘 보드)이 담당.
-KIS 미가용 시 상장일 확정 불가 → 해당 건 skip(부분 강등). baseline 은 항상 표시되므로 안전.
+www.38.co.kr 은 레거시 TLS(cipher) 라 Python 기본 ssl 이 SSLV3_ALERT_HANDSHAKE_FAILURE →
+SECLEVEL=1 컨텍스트로 우회(검증 우선, 실패 시 CERT_NONE fallback).
 
-serve.py 가 30분 캐시로 호출하고, 프런트가 baseline(ipo-recent.js)에 병합한다.
+주의: 의무보유확약은 총 확약 비율만 제공(38 목록 단). 구간별(15/30/90/180일) 비율은 종목 상세
+(DART/38 company.htm)에 있으나 본 모듈 미수집 — 프런트는 구간별 '해제일'을 상장일로 산출.
 """
 from __future__ import annotations
 import logging
 import os
 import re
+import ssl
 import sys
 import threading
 import time
+import urllib.request
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,171 +43,219 @@ if not logger.handlers:
     logger.addHandler(h)
 logger.setLevel(logging.INFO)
 
-_FDR_TTL = 1800.0  # fdr 종목 마스터 캐시 30분 (재다운로드 비용 절감)
+_38_BASE = "https://www.38.co.kr/html/fund/index.htm"
+_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+MAX_LIVE_LISTINGS = 60
+
+_FDR_TTL = 1800.0
 _fdr_cache: dict[str, Any] = {"ts": 0.0, "df": None}
-_fdr_lock = threading.Lock()  # ThreadingMixIn + warmup 동시 호출 경합 방지
-MAX_LIVE_LISTINGS = 40
+_fdr_lock = threading.Lock()
 
 
-def _f(v: Any) -> Optional[float]:
+def _ssl_ctx(verify: bool) -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    if not verify:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
     try:
-        if v is None or v == "":
-            return None
-        return float(str(v).replace(",", ""))
-    except (ValueError, TypeError):
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")  # 38 레거시 cipher 허용
+    except ssl.SSLError:
+        pass
+    return ctx
+
+
+def _fetch_38(o: str, timeout: int = 20) -> str:
+    """38 데스크탑 목록 페이지(EUC-KR) → str. 검증 우선, 실패 시 CERT_NONE fallback."""
+    url = f"{_38_BASE}?o={o}"
+    req = urllib.request.Request(url, headers=_HEADERS)
+    for verify in (True, False):
+        try:
+            with urllib.request.urlopen(req, context=_ssl_ctx(verify), timeout=timeout) as r:
+                return r.read().decode("euc-kr", errors="replace")
+        except (ssl.SSLError, urllib.error.URLError) as e:
+            if verify:
+                logger.warning("38 o=%s TLS 검증 실패 → CERT_NONE 재시도: %s", o, repr(e)[:80])
+                continue
+            logger.error("38 o=%s fetch 실패: %s", o, repr(e)[:120])
+        except Exception as e:
+            logger.error("38 o=%s 오류: %s", o, repr(e)[:120])
+            break
+    return ""
+
+
+def _cells(tr: str) -> list[str]:
+    return [re.sub(r"<[^>]+>", "", td).replace("&nbsp;", " ").strip()
+            for td in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.DOTALL | re.IGNORECASE)]
+
+
+def _num(s: str) -> Optional[float]:
+    if not s:
+        return None
+    m = re.search(r"-?[\d,]+(?:\.\d+)?", s)
+    if not m:
+        return None
+    try:
+        return float(m.group(0).replace(",", ""))
+    except ValueError:
         return None
 
 
 def _norm(s: str) -> str:
-    """종목명 정규화 — '(구.대영채비)' 등 부기 제거 + 공백 제거."""
     s = re.sub(r"\(\s*구[.\s].*?\)", "", s or "")
     return re.sub(r"\s+", "", s).strip()
 
 
+def _parse_date(s: str) -> Optional[str]:
+    m = re.search(r"(20\d{2})[/.\-](\d{1,2})[/.\-](\d{1,2})", s or "")
+    return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}" if m else None
+
+
+def _parse_nw(html: str) -> dict[str, dict]:
+    """o=nw → {norm_name: {name, listingDate, offeringPrice, firstDayReturn, firstDayClose, listed}}.
+    상장 완료 행(상장일 <= 오늘)만 컬럼 정렬이 안정적: [명,상장일,현재가,등락,공모가,공모대비,시초가,시초%,종가]."""
+    today = date.today().isoformat()
+    out: dict[str, dict] = {}
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE):
+        tds = _cells(tr)
+        if len(tds) < 9:
+            continue
+        name = tds[0]
+        ld = _parse_date(tds[1])
+        if not name or not ld:
+            continue
+        if ld > today:  # 상장 예정 → 컬럼 정렬 다름 + 미상장 → skip (오늘 보드가 담당)
+            continue
+        key = _norm(name)
+        if not key or key in out:
+            continue
+        out[key] = {
+            "name": re.sub(r"\(\s*구[.\s].*?\)", "", name).strip(),
+            "listingDate": ld,
+            "offeringPrice": _num(tds[4]),
+            "firstDayReturn": _num(tds[7]),   # 시초가 수익률(공모가 대비)
+            "firstDayClose": _num(tds[8]),    # 첫날 종가
+        }
+    return out
+
+
+def _parse_r1(html: str) -> dict[str, dict]:
+    """o=r1 (수요예측결과) → {norm_name: {bandLow,bandHigh,offeringPrice,competitionInst,lockupRate,underwriter}}.
+    컬럼: [명, 수요예측일, 밴드(n~n), 확정공모가, 공모주식수, 경쟁률(n:1), 의무보유확약(n%), 주간사]."""
+    out: dict[str, dict] = {}
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE):
+        tds = _cells(tr)
+        if len(tds) < 8:
+            continue
+        name = tds[0]
+        key = _norm(name)
+        band = tds[2]
+        if not key or "~" not in band:  # 밴드 셀로 데이터행 식별 (헤더/광고행 제외)
+            continue
+        bm = re.search(r"([\d,]+)\s*~\s*([\d,]+)", band)
+        comp = next((c for c in tds if ":1" in c or "：1" in c), "")
+        lock = next((c for c in tds[5:] if re.fullmatch(r"\d+(?:\.\d+)?\s*%", c.strip())), "")
+        uw = next((c for c in tds if ("증권" in c or "투자" in c or "캐피탈" in c)), None)
+        out[key] = {
+            "bandLow": _num(bm.group(1)) if bm else None,
+            "bandHigh": _num(bm.group(2)) if bm else None,
+            "offeringPrice": _num(tds[3]),
+            "competitionInst": _num(comp),
+            "lockupRate": _num(lock),
+            "underwriter": uw,
+        }
+    return out
+
+
 def _load_fdr():
     now = time.monotonic()
-    cached = _fdr_cache["df"]
-    if cached is not None and (now - _fdr_cache["ts"]) < _FDR_TTL:
-        return cached
-    with _fdr_lock:  # double-checked locking — 동시 만료 시 중복 다운로드 방지
-        now = time.monotonic()
-        if _fdr_cache["df"] is not None and (now - _fdr_cache["ts"]) < _FDR_TTL:
+    if _fdr_cache["df"] is not None and (now - _fdr_cache["ts"]) < _FDR_TTL:
+        return _fdr_cache["df"]
+    with _fdr_lock:
+        if _fdr_cache["df"] is not None and (time.monotonic() - _fdr_cache["ts"]) < _FDR_TTL:
             return _fdr_cache["df"]
         import FinanceDataReader as fdr
         df = fdr.StockListing("KRX")
         _fdr_cache["df"] = df
-        _fdr_cache["ts"] = now
-        logger.info("fdr 종목 마스터 로드 %d건", len(df))
+        _fdr_cache["ts"] = time.monotonic()
         return df
 
 
-def _match_fdr(df, name: str):
-    """종목명으로 fdr 행 매칭 (정확 → 부분 양방향). 매칭되면 '이미 상장됨'."""
+def _fdr_lookup(df, name: str) -> tuple[Optional[str], Optional[str]]:
+    """종목명 → (종목코드, 시장). 미매칭 시 (None, None)."""
+    if df is None:
+        return None, None
     target = _norm(name)
-    if not target or df is None:
-        return None
-    names = df["Name"].astype(str)
-    normed = names.map(_norm)
-    exact = df[normed == target]
-    if len(exact):
-        return exact.iloc[0]
-    # 부분 일치는 짧은 쪽 3자 이상 + 길이비 0.6 이상일 때만 ("SK" 등 단편 오매칭 방지)
-    for i, n2 in normed.items():
-        if not n2:
-            continue
-        short, long = (n2, target) if len(n2) <= len(target) else (target, n2)
-        if len(short) >= 3 and short in long and len(short) / len(long) >= 0.6:
-            return df.loc[i]
-    return None
-
-
-def _norm_market(raw: Any) -> str:
-    m = str(raw or "").upper()
-    if "KOSPI" in m or m == "STK":
-        return "KOSPI"
-    if "KOSDAQ" in m or m == "KSQ":
-        return "KOSDAQ"
-    if "KONEX" in m or m == "KNX":
-        return "KONEX"
-    return "KOSDAQ"
+    try:
+        normed = df["Name"].astype(str).map(_norm)
+        hit = df[normed == target]
+        if not len(hit):
+            for i, n2 in normed.items():
+                if n2 and len(n2) >= 3 and (n2 in target or target in n2):
+                    hit = df.loc[[i]]
+                    break
+        if len(hit):
+            row = hit.iloc[0]
+            m = str(row.get("Market") or "").upper()
+            mk = "KOSPI" if "KOSPI" in m else ("KONEX" if "KONEX" in m else "KOSDAQ")
+            return str(row["Code"]).strip(), mk
+    except Exception as e:
+        logger.warning("fdr lookup(%s) 오류: %s", name, repr(e)[:80])
+    return None, None
 
 
 def get_recent_listings(since: str = "2026-04-30", max_items: int = MAX_LIVE_LISTINGS) -> list[dict]:
-    """38 파이프라인 ∩ fdr(상장확인) → KIS 첫날 수익률. since 이후 상장분만 반환."""
-    import kind_client
-    try:
-        # fetch_detail=False: 리스트행에 확정공모가/주간사 존재 → 상세 fetch 생략(속도)
-        items = kind_client.get_ipo_schedule(fetch_detail=False)
-    except Exception as e:
-        logger.error("kind 일정 수집 실패: %s", e)
+    """38 o=nw(상장 아카이브) ∪ o=r1(수요예측결과) 병합. since 이후 상장분 전체."""
+    nw = _parse_nw(_fetch_38("nw"))
+    if not nw:
+        logger.error("38 신규상장(o=nw) 수집 0건 — 빈 결과")
         return []
-
+    r1 = _parse_r1(_fetch_38("r1"))
     try:
         df = _load_fdr()
     except Exception as e:
-        logger.error("fdr 로드 실패 (신규상장 비활성): %s", e)
-        return []
-
-    kis = None
-    try:
-        if os.environ.get("KIS_APP_KEY") and os.environ.get("KIS_APP_SECRET"):
-            from kis_client import KisClient
-            kis = KisClient()
-    except Exception as e:
-        logger.warning("KIS 초기화 실패 — 첫날 수익률/상장일 확정 불가: %s", e)
+        logger.warning("fdr 로드 실패 (티커/시장 생략): %s", e)
+        df = None
 
     out: list[dict] = []
-    seen: set[str] = set()
-    for it in items:
-        if len(out) >= max_items:
-            break
-        name = (it.get("name") or "").strip()
-        key = _norm(name)
-        if not key or key in seen:
+    for key, n in nw.items():
+        ld = n["listingDate"]
+        if ld <= since:
             continue
-        row = _match_fdr(df, name)
-        if row is None:
-            continue  # fdr 에 없음 = 미상장(예정) → skip
-
-        code = str(row["Code"]).strip()
-        market = _norm_market(row.get("Market"))
-        offering = it.get("price")  # 확정공모가만 — 희망밴드 폴백 제거(수익률 기준 일관성)
-
-        listing_date = None
-        first_open = first_close = high = None
-        days_to_high = None
-        if kis and code:
-            try:
-                daily = kis.get_daily(code, days=130)
-                time.sleep(0.4 if getattr(kis, "use_paper", True) else 0.05)
-            except Exception as e:
-                logger.warning("KIS get_daily(%s) 실패: %s", code, e)
-                daily = []
-            if daily:
-                listing_date = daily[0]["date"]
-                first_open = daily[0].get("open")
-                first_close = daily[0].get("close")
-                # 고가 + 도달일수 — argmax (list.index 는 중복 고가 시 항상 0 반환하는 버그)
-                hi_idx = max(range(len(daily)), key=lambda i: daily[i].get("high") or 0)
-                if daily[hi_idx].get("high") is not None:
-                    high = daily[hi_idx].get("high")
-                    days_to_high = hi_idx
-
-        # 상장일 미확정(KIS 무) 또는 baseline 범위(since 이전) → 제외
-        if not listing_date or listing_date <= since:
-            continue
-        seen.add(key)
-
-        def _ret(p):
-            return round((p / offering - 1) * 100, 2) if (offering and p) else None
-
+        fund = r1.get(key, {})
+        name = n["name"]
+        offering = n.get("offeringPrice") or fund.get("offeringPrice")
+        ticker, market = _fdr_lookup(df, name)
         is_spac = "스팩" in name
+        close = n.get("firstDayClose")
+        close_ret = round((close / offering - 1) * 100, 2) if (offering and close) else None
         out.append({
-            "name": re.sub(r"\(\s*구[.\s].*?\)", "", name).strip(),
-            "ticker": code,
-            "listingDate": listing_date,
-            "market": market,
+            "name": name,
+            "ticker": ticker,
+            "listingDate": ld,
+            "market": market or "KOSDAQ",
             "sector": "스팩" if is_spac else "기타",
             "sectorRaw": "스팩" if is_spac else "기타",
             "offeringPrice": offering,
-            "firstDayReturn": _ret(first_open),
-            "firstDayCloseReturn": _ret(first_close),
-            "highReturn": _ret(high),
-            "daysToHigh": days_to_high,
+            "firstDayReturn": n.get("firstDayReturn"),
+            "firstDayCloseReturn": close_ret,
+            "highReturn": None,           # o=nw 에 고가 미포함 (구간별 락업과 무관)
+            "daysToHigh": None,
             "return1M": None,
             "return3M": None,
             "return6M": None,
             "competitionRetail": None,
-            "competitionInst": None,
+            "competitionInst": fund.get("competitionInst"),
             "offeringAmount": None,
-            "lockupRate": None,
-            "upperLimitHit": False,  # 신규상장 ±400% 룰 — 신뢰 산출 불가, 보수적 False
-            "underwriter": it.get("underwriter"),
+            "lockupRate": fund.get("lockupRate"),     # 의무보유확약 총 비율 (o=r1)
+            "upperLimitHit": False,
+            "underwriter": fund.get("underwriter"),
             "source": "live",
         })
+        if len(out) >= max_items:
+            break
 
     out.sort(key=lambda r: r["listingDate"], reverse=True)
-    logger.info("신규상장 수집 %d건 (since %s, KIS=%s)", len(out), since, bool(kis))
+    logger.info("신규상장 수집 %d건 (since %s, o=nw %d / o=r1 %d)", len(out), since, len(nw), len(r1))
     return out
 
 
@@ -215,5 +267,7 @@ if __name__ == "__main__":
             pass
     import json
     rows = get_recent_listings()
-    print(f"\n=== 신규상장(라이브) {len(rows)}건 ===")
-    print(json.dumps(rows, ensure_ascii=False, indent=2)[:4000])
+    print(f"\n=== 신규상장(라이브 v2) {len(rows)}건 ===")
+    for r in rows:
+        print(f"  {r['listingDate']} {r['name'][:20]:20} 공모{r['offeringPrice']} "
+              f"첫날{r['firstDayReturn']}% 확약{r['lockupRate']}% 경쟁{r['competitionInst']} {r['market']} {r['ticker']}")
