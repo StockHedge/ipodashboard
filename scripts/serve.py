@@ -538,6 +538,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/ipo/schedule":
             self._send_json(self._handle_ipo_schedule(parse_qs(parsed.query)))
             return
+        if path == "/api/listings/recent":
+            self._send_json(self._handle_recent_listings(parse_qs(parsed.query)))
+            return
         if path == "/api/news/search":
             self._send_json(self._handle_news_search(parse_qs(parsed.query)))
             return
@@ -713,6 +716,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         _cache_set(cache_key, payload, ttl=21600)
         return {"updated": updated, "source": "KIND", "items": items}
 
+    def _handle_recent_listings(self, qs: dict) -> dict:
+        """GET /api/listings/recent — 신규상장 라이브 수집(38+fdr+KIS), TTL 30분, ?refresh=1.
+
+        XLSX 비의존: baseline(ipo-recent.js) 이후 상장분을 라이브로 보강.
+        프런트가 baseline 에 병합한다."""
+        cache_key = "listings:recent"
+        force = (qs.get("refresh") or [""])[0] == "1"
+        if not force:
+            cached = _cache_get(cache_key)
+            if cached:
+                return {"updated": cached.get("updated"), "source": "live", "items": cached.get("items", [])}
+        try:
+            from listings_client import get_recent_listings
+            since = os.environ.get("LISTINGS_SINCE", "2026-04-30")
+            items = get_recent_listings(since=since)
+        except Exception as e:
+            sys.stderr.write(f"[serve] 신규상장 수집 오류: {e}\n")
+            return {"error": "listings_failed", "updated": None, "source": "live", "items": []}
+        updated = datetime.now(timezone.utc).isoformat()
+        _cache_set(cache_key, {"updated": updated, "items": items}, ttl=1800)  # 30분
+        return {"updated": updated, "source": "live", "items": items}
+
     def _handle_news_search(self, qs: dict) -> dict:
         """GET /api/news/search?q=종목명&display=10 — TTL 600."""
         q = (qs.get("q") or [""])[0].strip()
@@ -880,6 +905,19 @@ def main():
         except Exception as e:
             sys.stderr.write(f"[serve] IPO 일정 warm-up 실패 (무시): {e}\n")
     threading.Thread(target=_warm_ipo_schedule, daemon=True).start()
+
+    # 신규상장 라이브 수집 warm-up (38+fdr+KIS는 수십 초 소요 → 첫 요청 대기 방지, 30분 캐시 선적재)
+    def _warm_recent_listings():
+        try:
+            from listings_client import get_recent_listings
+            items = get_recent_listings(since=os.environ.get("LISTINGS_SINCE", "2026-04-30"))
+            _cache_set("listings:recent",
+                       {"updated": datetime.now(timezone.utc).isoformat(), "items": items},
+                       ttl=1800)
+            sys.stderr.write(f"[serve] 신규상장 warm-up 완료: {len(items)}건\n")
+        except Exception as e:
+            sys.stderr.write(f"[serve] 신규상장 warm-up 실패 (무시): {e}\n")
+    threading.Thread(target=_warm_recent_listings, daemon=True).start()
 
     class ThreadedServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True

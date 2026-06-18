@@ -40,3 +40,6 @@ node_modules/
 
 # CLI 테스트 출력 산출물
 *_out.txt
+
+# 조사용 임시 산출물
+_probe*.txt

@@ -32,16 +32,16 @@
   <!-- file:// 에서도 작동 (script src 는 CORS 영향 적음). HTTP 서버 사용 시도 동일. -->
   <script src="data/ipo-recent.js" onerror="console.info('[ipo-recent.js] 없음 — fetch + 샘플 fallback')"></script>
 
-  <!-- Theme bootstrap — head 인라인 (FOUC 차단). 기본값 'dark' (사용자 명시 선호). -->
-  <!-- localStorage 에 명시적으로 'light' 가 저장된 경우만 light, 그 외 모두 dark -->
+  <!-- Theme bootstrap — head 인라인 (FOUC 차단). 기본값 'light'. -->
+  <!-- localStorage 에 명시적으로 'dark' 가 저장된 경우만 dark, 그 외 모두 light -->
   <script>
     (function () {
       try {
         var saved = localStorage.getItem('ipo-dashboard-theme');
-        var theme = (saved === 'light') ? 'light' : 'dark';
+        var theme = (saved === 'dark') ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', theme);
       } catch (e) {
-        document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-theme', 'light');
       }
     })();
   </script>
@@ -634,7 +634,7 @@
       line-height: 1.5;
     }
     .sidebar-mobile-toggle {
-      display: none;
+      display: inline-flex;   /* 데스크탑·모바일 모두 노출 (접기/열기 토글) */
       position: fixed;
       top: 0.75rem;
       left: 0.75rem;
@@ -657,6 +657,9 @@
     }
     @media (min-width: 1024px) {
       .tail-container { padding-left: calc(var(--space-4) + 240px) !important; }
+      /* 데스크탑 접기 — 사이드바 off-canvas + 본문이 240px 회수 */
+      body.sidebar-collapsed .app-sidebar { transform: translateX(-100%); }
+      body.sidebar-collapsed .tail-container { padding-left: var(--space-4) !important; }
     }
 
     /* view 분기 */
@@ -2243,6 +2246,7 @@
 
     function deriveSource(r) {
       if (!r) return 'XLSX';
+      if (r.source === 'live') return '38.co.kr';  // 라이브 신규상장 (38+KIS)
       if (r.dart_offering_amount || r.dart_underwriter || r.dart_subscription_date || r.dartSubscription) return 'DART';
       if (r._upcoming) return '38.co.kr';
       return 'XLSX';
@@ -4157,10 +4161,12 @@
         return;
       }
 
-      const avgFDR = filteredData.reduce((s, r) => s + r.firstDayReturn, 0) / n;
+      const _fdrV = filteredData.filter(r => r.firstDayReturn != null);
+      const avgFDR = _fdrV.length ? _fdrV.reduce((s, r) => s + r.firstDayReturn, 0) / _fdrV.length : 0;
       const upperHit = filteredData.filter(r => r.upperLimitHit).length;
       const upperRate = (upperHit / n * 100);
-      const avgComp = filteredData.reduce((s, r) => s + r.competitionRetail, 0) / n;
+      const _compV = filteredData.filter(r => r.competitionRetail != null);
+      const avgComp = _compV.length ? _compV.reduce((s, r) => s + r.competitionRetail, 0) / _compV.length : 0;
       const r6mValid = filteredData.filter(r => r.return6M !== null && r.return6M !== undefined);
       const avg6M = r6mValid.length ? r6mValid.reduce((s, r) => s + r.return6M, 0) / r6mValid.length : 0;
       // 락업 비율: lockupRate 있는 행의 평균. 만료 D-30 임박 종목 수 동시 산출.
@@ -4482,7 +4488,7 @@
     // Top / Bottom performers
     // ============================================================
     function renderPerformers() {
-      const sorted = [...filteredData].sort((a, b) => b.firstDayReturn - a.firstDayReturn);
+      const sorted = filteredData.filter(r => r.firstDayReturn != null).sort((a, b) => b.firstDayReturn - a.firstDayReturn);
       const top = sorted.slice(0, 5);
       const bottom = sorted.slice(-5).reverse();
 
@@ -4561,7 +4567,7 @@
             <span class="ml-1.5 align-middle">${getSourceBadgeHTML(r)}</span>
           </td>
           <td class="text-[var(--muted)] text-xs hide-mobile">${escHtml(r.sector)}</td>
-          <td class="text-right font-semibold tabular-nums ${r.firstDayReturn >= 0 ? 'pos' : 'neg'}"><span aria-hidden="true">${r.firstDayReturn >= 0 ? '▲' : '▼'}</span> ${formatPct(r.firstDayReturn)}</td>
+          <td class="text-right font-semibold tabular-nums ${r.firstDayReturn == null ? 'text-[var(--muted)]' : r.firstDayReturn >= 0 ? 'pos' : 'neg'}"><span aria-hidden="true">${r.firstDayReturn == null ? '' : r.firstDayReturn >= 0 ? '▲' : '▼'}</span> ${formatPct(r.firstDayReturn)}</td>
           <td class="text-right tabular-nums hide-mobile ${(r.return6M === null || r.return6M === undefined) ? 'text-[var(--muted)]' : r.return6M >= 0 ? 'pos' : 'neg'}">${formatPct(r.return6M)}</td>
           <td class="text-right tabular-nums hide-mobile">${(r.competitionRetail != null) ? r.competitionRetail.toFixed(1) + ':1' : '<span class="text-[var(--muted)]">-</span>'}</td>
           <td class="text-right tabular-nums hide-mobile">${formatNum(r.offeringAmount)}</td>
@@ -4619,7 +4625,7 @@
       document.getElementById('modal-meta').innerHTML = `${escHtml(row.listingDate)} · ${escHtml(row.market)} · ${escHtml(row.sector)} · 주간사 ${escHtml(row.underwriter)} <span class="ml-2 align-middle">${sourceBadge}</span>${upcomingBadge}`;
 
       document.getElementById('modal-offering').innerHTML = `${formatNum(row.offeringPrice)}원 <span class="text-xs text-[var(--muted)]">(${formatNum(row.offeringAmount)}억)</span>`;
-      document.getElementById('modal-fdr').innerHTML = `<span class="${row.firstDayReturn >= 0 ? 'pos' : 'neg'}">${formatPct(row.firstDayReturn)}</span>`;
+      document.getElementById('modal-fdr').innerHTML = `<span class="${row.firstDayReturn == null ? '' : row.firstDayReturn >= 0 ? 'pos' : 'neg'}">${formatPct(row.firstDayReturn)}</span>`;
       document.getElementById('modal-high').innerHTML = `${formatPct(row.highReturn)} <span class="text-xs text-[var(--muted)]">(${row.daysToHigh}일 만)</span>`;
       document.getElementById('modal-days').textContent = `${row.daysToHigh}일`;
       document.getElementById('modal-6m').innerHTML = `<span class="${(row.return6M === null || row.return6M === undefined) ? '' : row.return6M >= 0 ? 'pos' : 'neg'}">${formatPct(row.return6M)}</span>`;
@@ -5169,6 +5175,37 @@
       if (h < 24) return `${h}시간 전`;
       return `${Math.floor(h / 24)}일 전`;
     }
+    // 신규상장 라이브 병합 — baseline(ipo-recent.js) 이후 상장분을 서버 30분 캐시에서 받아 ipoData 에 합침.
+    // XLSX 비의존: 마지막 상장(4/30) 이후 종목이 자동 반영. serve.py 미가동 시 baseline 만 (graceful).
+    async function mergeRecentListings() {
+      try {
+        const res = await fetch('/api/listings/recent');
+        if (!res.ok) return;
+        const json = await res.json();
+        const items = (json && json.items) || [];
+        if (!items.length) return;
+        const norm = s => (s || '').replace(/\(\s*구[.\s][^)]*\)/g, '').replace(/\s+/g, '');
+        const existing = new Set((ipoData || []).map(r => norm(r.name)));
+        let maxId = (ipoData || []).reduce((m, r) => Math.max(m, r.id || 0), 0);
+        let added = 0;
+        items.forEach(it => {
+          const key = norm(it.name);
+          if (!key || existing.has(key)) return;
+          existing.add(key);
+          ipoData.push({ id: ++maxId, ...it });
+          added++;
+        });
+        if (added > 0) {
+          _scoreCache = { dataset: null, datasetLen: 0, scores: null };  // AI 점수 캐시 무효화 (데이터셋 변경)
+          if (typeof applyFilters === 'function') applyFilters();          // filteredData 재생성 + renderAll
+          if (typeof renderTodayBoard === 'function') renderTodayBoard();
+          const sb = document.getElementById('sidebar-count');
+          if (sb) sb.textContent = `${ipoData.length}건 로드됨`;
+          if (typeof pushToast === 'function') pushToast(`신규상장 ${added}건 라이브 반영`, 'success', 2600);
+        }
+      } catch (e) { /* serve.py 미가동 → baseline 만 표시 (정상 강등) */ }
+    }
+
     async function renderNewsFeed(force = false) {
       const body = document.getElementById('news-feed-body');
       if (!body) return;
@@ -5500,8 +5537,17 @@
     }
 
     function toggleSidebar() {
-      const sb = document.getElementById('app-sidebar');
-      sb?.classList.toggle('open');
+      const btn = document.getElementById('sidebar-toggle-btn');
+      if (window.matchMedia('(min-width: 1024px)').matches) {
+        // 데스크탑: 접기/펼치기 (상태 영속)
+        const collapsed = document.body.classList.toggle('sidebar-collapsed');
+        try { localStorage.setItem('ipo-sidebar-collapsed', collapsed ? '1' : '0'); } catch (e) {}
+        btn?.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      } else {
+        // 모바일: 오버레이 열기/닫기
+        const open = document.getElementById('app-sidebar')?.classList.toggle('open');
+        btn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
     }
     function closeSidebar() {
       document.getElementById('app-sidebar')?.classList.remove('open');
@@ -6889,9 +6935,18 @@
       if (typeof renderDailyBrief === 'function') renderDailyBrief();
       initTabA11y();          // a11y: 탭↔패널 aria 연결
       initTablistKeyboard();  // a11y: 탭 화살표 키 이동
+      // 사이드바 접힘 상태 복원 (데스크탑)
+      try {
+        if (localStorage.getItem('ipo-sidebar-collapsed') === '1' && window.matchMedia('(min-width: 1024px)').matches) {
+          document.body.classList.add('sidebar-collapsed');
+          document.getElementById('sidebar-toggle-btn')?.setAttribute('aria-expanded', 'false');
+        }
+      } catch (e) {}
       loadPlotly().catch(() => {});  // perf: 초기 렌더 후 백그라운드 선로딩 (고급분석 첫 진입 지연 완화)
       // 오늘 보드 (외부 일정 /api/ipo/schedule) + 뉴스 피드 (DART + RSS) — Phase 2/3
       if (typeof fetchIpoSchedule === 'function') fetchIpoSchedule();
+      // 신규상장 라이브 병합 (XLSX 비의존, 30분 서버캐시) — baseline 이후 종목 자동 추가
+      if (typeof mergeRecentListings === 'function') mergeRecentListings();
       if (typeof renderNewsFeed === 'function') {
         renderNewsFeed();
         if (_newsFeedTimer) clearInterval(_newsFeedTimer);
