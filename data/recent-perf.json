@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-06-19T13:02:07",
+  "by_ticker": {
+    "477850": {
+      "name": "마키나락스",
+      "highReturn": 457.33,
+      "daysToHigh": 3,
+      "return1M": 11.07,
+      "return3M": null,
+      "return6M": null,
+      "lastClose": 16660.0,
+      "lastDate": "2026-06-19"
+    },
+    "487580": {
+      "name": "폴레드",
+      "highReturn": 420.0,
+      "daysToHigh": 2,
+      "return1M": -21.8,
+      "return3M": null,
+      "return6M": null,
+      "lastClose": 3520.0,
+      "lastDate": "2026-06-19"
+    },
+    "439960": {
+      "name": "코스모로보틱스",
+      "highReturn": 1041.67,
+      "daysToHigh": 5,
+      "return1M": 265.83,
+      "return3M": null,
+      "return6M": null,
+      "lastClose": 23000.0,
+      "lastDate": "2026-06-19"
+    }
+  }
+}

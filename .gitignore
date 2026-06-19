@@ -8,7 +8,8 @@ data/ipo-recent.json
 data/dart_corp_code.json
 data/dart_candidates_review.json
 data/.kis_token.json
-# data/ipo-recent.js 는 배포(Render)용으로 커밋 — 공개 IPO 통계, 비밀정보 아님
+data/.toss_token.json
+# data/ipo-recent.js, data/recent-perf.json 은 배포(Render)용으로 커밋 — 공개 IPO 통계, 비밀정보 아님
 
 # Python
 __pycache__/

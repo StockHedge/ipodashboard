@@ -16,6 +16,7 @@ SECLEVEL=1 컨텍스트로 우회(검증 우선, 실패 시 CERT_NONE fallback).
 (DART/38 company.htm)에 있으나 본 모듈 미수집 — 프런트는 구간별 '해제일'을 상장일로 산출.
 """
 from __future__ import annotations
+import json
 import logging
 import os
 import re
@@ -203,6 +204,31 @@ def _fdr_lookup(df, name: str) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
+def _merge_recent_perf(rows: list[dict]) -> None:
+    """data/recent-perf.json(토스 일봉 산출, fetch_prices.py 생성)을 ticker 매칭으로 병합.
+    상장 후 성과(고가·기간수익률) — 라이브 목록엔 없는 값. 파일 없으면 조용히 skip(정상 강등)."""
+    path = PROJECT_ROOT / "data" / "recent-perf.json"
+    try:
+        by_ticker = json.loads(path.read_text(encoding="utf-8")).get("by_ticker", {})
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        logger.warning("recent-perf.json 로드 실패(무시): %s", e)
+        return
+    keys = ("highReturn", "daysToHigh", "return1M", "return3M", "return6M")
+    merged = 0
+    for r in rows:
+        p = by_ticker.get((r.get("ticker") or "").strip())
+        if not p:
+            continue
+        for k in keys:
+            if p.get(k) is not None and r.get(k) is None:
+                r[k] = p[k]
+        merged += 1
+    if merged:
+        logger.info("recent-perf 병합 %d건", merged)
+
+
 def get_recent_listings(since: str = "2026-04-30", max_items: int = MAX_LIVE_LISTINGS) -> list[dict]:
     """38 o=nw(상장 아카이브) ∪ o=r1(수요예측결과) 병합. since 이후 상장분 전체."""
     nw = _parse_nw(_fetch_38("nw"))
@@ -254,6 +280,7 @@ def get_recent_listings(since: str = "2026-04-30", max_items: int = MAX_LIVE_LIS
         if len(out) >= max_items:
             break
 
+    _merge_recent_perf(out)
     out.sort(key=lambda r: r["listingDate"], reverse=True)
     logger.info("신규상장 수집 %d건 (since %s, o=nw %d / o=r1 %d)", len(out), since, len(nw), len(r1))
     return out
