@@ -82,17 +82,18 @@
       --chip-lock-bg:   oklch(0.95 0.06 25);  --chip-lock-fg:   oklch(0.47 0.18 25);
       --chip-news-bg:   oklch(0.95 0.006 270);--chip-news-fg:   oklch(0.42 0.01 270);
 
-      /* Light theme (default) — OKLCH lightness 0.9+ for bg, 0.2~0.6 for text */
-      --bg: oklch(0.975 0 0);
-      --card: oklch(1 0 0);
-      --text: oklch(0.22 0 0);
-      --muted: oklch(0.52 0 0);
-      --border: oklch(0.90 0 0);
-      --accent: oklch(0.52 0.16 255);
-      --accent-light: oklch(0.92 0.08 255);
-      --pos: oklch(0.56 0.17 142);
-      --neg: oklch(0.54 0.20 25);
-      --warning: oklch(0.68 0.14 85);
+      /* Light theme (default) — tinted neutral(브랜드 hue 258 미세 혼합, impeccable 원칙).
+         순수 회색(chroma 0) 대신 잉크-블루 틴트로 전역 정제. */
+      --bg: oklch(0.976 0.004 258);
+      --card: oklch(0.995 0.003 258);
+      --text: oklch(0.23 0.013 262);
+      --muted: oklch(0.53 0.012 262);
+      --border: oklch(0.905 0.006 258);
+      --accent: oklch(0.53 0.17 258);
+      --accent-light: oklch(0.93 0.065 258);
+      --pos: oklch(0.54 0.16 150);
+      --neg: oklch(0.55 0.205 27);
+      --warning: oklch(0.69 0.14 82);
 
       /* Source badge tokens (sync with light theme) */
       --badge-dart-bg: oklch(0.93 0.07 255);
@@ -113,24 +114,24 @@
       --market-kosdaq-bg: oklch(0.93 0.07 162);
       --market-kosdaq-fg: oklch(0.36 0.13 162);
       --market-kosdaq-border: oklch(0.84 0.09 162);
-      --row-hover: oklch(0.97 0 0);
+      --row-hover: oklch(0.965 0.007 258);
 
       --radius-sm: 0.375rem;
       --radius-md: 0.5rem;
       --radius-lg: 0.75rem;
       --radius-xl: 1rem;
 
-      --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.04);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+      --shadow-sm: 0 1px 2px oklch(0.45 0.04 262 / 0.07);
+      --shadow-md: 0 4px 14px -3px oklch(0.45 0.04 262 / 0.10), 0 2px 5px -3px oklch(0.45 0.04 262 / 0.06);
     }
 
     /* Dark theme — OKLCH lightness invert (전용 어두운 배경, 색감 chroma 유지) */
     [data-theme="dark"] {
-      --bg: oklch(0.16 0.005 270);
-      --card: oklch(0.22 0.005 270);
-      --text: oklch(0.94 0.003 0);
-      --muted: oklch(0.68 0.005 0);
-      --border: oklch(0.30 0.005 270);
+      --bg: oklch(0.165 0.008 262);
+      --card: oklch(0.215 0.009 262);
+      --text: oklch(0.94 0.004 262);
+      --muted: oklch(0.68 0.008 262);
+      --border: oklch(0.305 0.008 262);
       --accent: oklch(0.70 0.17 255);
       --accent-light: oklch(0.30 0.12 255);
       --pos: oklch(0.70 0.17 142);
@@ -185,6 +186,8 @@
       -moz-osx-font-smoothing: grayscale;
       letter-spacing: -0.011em;  /* 한글 자간 살짝 좁혀 밀도감 (Pretendard 권장) */
       text-rendering: optimizeLegibility;
+      font-feature-settings: 'tnum' 1, 'case' 1;  /* 인라인 숫자 등폭 정렬 + 부호 대문자 높이 */
+      font-optical-sizing: auto;
     }
     /* 숫자/통계 — JetBrains Mono (등폭, 자릿수 정렬). 가격·수익률·D-day 가독성 핵심 */
     .stat-number, .kpi-value, .tabular-nums {
@@ -254,7 +257,7 @@
       background: var(--accent);
       color: white;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px oklch(0.52 0.16 255 / 0.12);
+      box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 14%, transparent);
     }
 
     /* Source badges — 토큰화 (theme-aware) */
@@ -696,9 +699,13 @@
       border-bottom: 1px solid var(--border);
     }
     .side-panel__title { font-size: 1rem; font-weight: 700; letter-spacing: -0.02em; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
     .side-panel__close {
-      width: 1.75rem;
-      height: 1.75rem;
+      width: 2rem;
+      height: 2rem;
       border-radius: var(--radius-sm);
       display: inline-flex;
       align-items: center;
@@ -782,7 +789,9 @@
       border: none;
       cursor: pointer;
       color: var(--muted);
-      padding: 0.125rem;
+      padding: 0.375rem;
+      min-width: 1.75rem;
+      min-height: 1.75rem;
       transition: color 120ms ease-out, transform 120ms ease-out;
     }
     .star-btn:hover { transform: scale(1.15); }
@@ -862,7 +871,7 @@
 </head>
 <body class="antialiased">
   <!-- Mobile sidebar toggle (≤lg) -->
-  <button type="button" class="sidebar-mobile-toggle" onclick="toggleSidebar()" aria-label="사이드바 열기/닫기" id="sidebar-toggle-btn">
+  <button type="button" class="sidebar-mobile-toggle" onclick="toggleSidebar()" aria-label="사이드바 열기/닫기" aria-controls="app-sidebar" aria-expanded="true" id="sidebar-toggle-btn">
     <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
     </svg>
@@ -950,7 +959,7 @@
     <div id="market-widget" class="sidebar-meta" style="border-top: 1px solid var(--border); padding: 0.625rem 0.5rem;">
       <div class="flex items-center justify-between mb-1.5">
         <div class="text-xxs font-bold text-[var(--muted)]" style="letter-spacing: 0.04em">시장 환경</div>
-        <button type="button" onclick="fetchMarketWidget(true)" id="market-refresh-btn" title="시장 위젯 새로고침" aria-label="시장 환경 위젯 새로고침" class="text-[var(--muted)] hover:text-[var(--accent)] focus-ring" style="padding:4px;border-radius:var(--radius-sm);border:none;background:transparent;cursor:pointer">
+        <button type="button" onclick="fetchMarketWidget(true)" id="market-refresh-btn" title="시장 위젯 새로고침" aria-label="시장 환경 위젯 새로고침" class="text-[var(--muted)] hover:text-[var(--accent)] focus-ring" style="padding:7px;border-radius:var(--radius-sm);border:none;background:transparent;cursor:pointer;min-width:1.75rem;min-height:1.75rem">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.058 11M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         </button>
       </div>
@@ -1167,11 +1176,11 @@
             구간 선택 → 상장일 + N일 해제일이 다가오는 종목 (D-day 순) · 매물 출회 압력 사전 인지
           </div>
         </div>
-        <div class="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="확약 해제 구간 선택">
-          <button type="button" class="filter-chip" data-lockup-window="15" onclick="setLockupWindow(15)" role="tab">15일</button>
-          <button type="button" class="filter-chip" data-lockup-window="30" onclick="setLockupWindow(30)" role="tab">30일</button>
-          <button type="button" class="filter-chip active" data-lockup-window="90" onclick="setLockupWindow(90)" role="tab">90일</button>
-          <button type="button" class="filter-chip" data-lockup-window="180" onclick="setLockupWindow(180)" role="tab">180일</button>
+        <div class="flex items-center gap-1.5 flex-wrap" role="group" aria-label="확약 해제 구간 선택">
+          <button type="button" class="filter-chip" data-lockup-window="15" onclick="setLockupWindow(15)" aria-pressed="false">15일</button>
+          <button type="button" class="filter-chip" data-lockup-window="30" onclick="setLockupWindow(30)" aria-pressed="false">30일</button>
+          <button type="button" class="filter-chip active" data-lockup-window="90" onclick="setLockupWindow(90)" aria-pressed="true">90일</button>
+          <button type="button" class="filter-chip" data-lockup-window="180" onclick="setLockupWindow(180)" aria-pressed="false">180일</button>
         </div>
       </div>
       <div id="lockup-calendar-body" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
@@ -1217,9 +1226,9 @@
             <button type="button" onclick="setPeriodFilter('3y')" data-period="3y" class="filter-chip active">최근 3년 (기본)</button>
           </div>
           <div class="mt-2 flex gap-2">
-            <input type="date" id="date-from" class="text-sm px-2.5 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring" onchange="applyFilters()">
+            <input type="date" id="date-from" aria-label="상장일 시작" class="text-sm px-2.5 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring" onchange="applyFilters()">
             <span class="text-[var(--muted)] self-center">~</span>
-            <input type="date" id="date-to" class="text-sm px-2.5 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring" onchange="applyFilters()">
+            <input type="date" id="date-to" aria-label="상장일 종료" class="text-sm px-2.5 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring" onchange="applyFilters()">
           </div>
 
         </div>
@@ -1267,11 +1276,11 @@
           <div class="kpi-label">신규상장 엄격 필터</div>
           <div id="strict-indicator" class="text-xxs text-[var(--muted)] hidden" aria-live="polite">DART estkRs 연동 중</div>
         </div>
-        <div onclick="toggleStrictNewFilter()" id="strict-chip"
+        <button type="button" onclick="toggleStrictNewFilter()" id="strict-chip"
              class="strict-chip inline-flex items-center gap-2 focus-ring"
-             role="switch" aria-checked="false" tabindex="0">
+             role="switch" aria-checked="false">
           <span>진짜 신규상장 운영회사 IPO만 (DART estkRs 성공 + 비금융/비SPAC)</span>
-        </div>
+        </button>
         <div class="mt-1.5 text-xxs text-[var(--muted)]">현재 필터와 결합 적용됩니다. DART 보강 또는 _upcoming 플래그 + 금융/SPAC 제외 기준.</div>
       </div>
 
@@ -1283,8 +1292,10 @@
         </div>
         <div class="flex items-center gap-3 px-1">
           <input type="range" id="return-min" min="-100" max="300" step="5" value="-100"
+                 aria-label="첫날 수익률 최솟값 (%)"
                  class="w-full accent-[var(--accent)]" oninput="updateReturnRangeLabel(); debouncedFilter()">
           <input type="range" id="return-max" min="-100" max="300" step="5" value="300"
+                 aria-label="첫날 수익률 최댓값 (%)"
                  class="w-full accent-[var(--accent)]" oninput="updateReturnRangeLabel(); debouncedFilter()">
         </div>
       </div>
@@ -1350,16 +1361,16 @@
           <table class="data-table w-full min-w-[820px]">
             <thead>
               <tr>
-                <th onclick="sortTable('name')">종목명</th>
-                <th onclick="sortTable('listingDate')">상장일</th>
-                <th onclick="sortTable('market')">시장</th>
-                <th onclick="sortTable('sector')" class="hide-mobile">업종</th>
-                <th onclick="sortTable('firstDayReturn')" class="text-right">첫날 수익률</th>
-                <th onclick="sortTable('return6M')" class="text-right hide-mobile">6M 수익률</th>
-                <th onclick="sortTable('competitionRetail')" class="text-right hide-mobile">개인 경쟁률</th>
-                <th onclick="sortTable('offeringAmount')" class="text-right hide-mobile">공모총액(억)</th>
-                <th onclick="sortTable('daysSinceListing')" class="text-right hide-mobile" title="상장일 이후 경과 일수 (D+N)">경과일</th>
-                <th onclick="sortTable('aiScore')" class="text-right" title="AI 점수 (룰 기반 0~100) — 기관경쟁률40%+락업25%+섹터15%+규모10%+주관사10%">AI</th>
+                <th scope="col" onclick="sortTable('name')">종목명</th>
+                <th scope="col" onclick="sortTable('listingDate')">상장일</th>
+                <th scope="col" onclick="sortTable('market')">시장</th>
+                <th scope="col" onclick="sortTable('sector')" class="hide-mobile">업종</th>
+                <th scope="col" onclick="sortTable('firstDayReturn')" class="text-right">첫날 수익률</th>
+                <th scope="col" onclick="sortTable('return6M')" class="text-right hide-mobile">6M 수익률</th>
+                <th scope="col" onclick="sortTable('competitionRetail')" class="text-right hide-mobile">개인 경쟁률</th>
+                <th scope="col" onclick="sortTable('offeringAmount')" class="text-right hide-mobile">공모총액(억)</th>
+                <th scope="col" onclick="sortTable('daysSinceListing')" class="text-right hide-mobile" title="상장일 이후 경과 일수 (D+N)">경과일</th>
+                <th scope="col" onclick="sortTable('aiScore')" class="text-right" title="AI 점수 (룰 기반 0~100) — 기관경쟁률40%+락업25%+섹터15%+규모10%+주관사10%">AI</th>
                 <th class="w-8"></th>
               </tr>
             </thead>
@@ -1744,13 +1755,13 @@
           <table class="data-table w-full min-w-[680px]">
             <thead>
               <tr>
-                <th>종목</th>
-                <th>시장</th>
-                <th>해제 구간</th>
-                <th>해제 예정일</th>
-                <th class="text-right">D-day</th>
-                <th class="text-right hide-mobile">첫날 수익률</th>
-                <th class="text-center">참여</th>
+                <th scope="col">종목</th>
+                <th scope="col">시장</th>
+                <th scope="col">해제 구간</th>
+                <th scope="col">해제 예정일</th>
+                <th scope="col" class="text-right">D-day</th>
+                <th scope="col" class="text-right hide-mobile">첫날 수익률</th>
+                <th scope="col" class="text-center">참여</th>
               </tr>
             </thead>
             <tbody id="lockup-mgr-tbody"></tbody>
@@ -2022,18 +2033,7 @@
       applyFilters();
     }
 
-    // 키보드 접근성: strict chip 에 직접 리스너 (전역 keydown 오염 방지)
-    document.addEventListener('DOMContentLoaded', () => {
-      const chip = document.getElementById('strict-chip');
-      if (chip) {
-        chip.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            toggleStrictNewFilter();
-          }
-        });
-      }
-    });
+    // strict chip 은 <button>(role=switch) — Enter/Space 는 네이티브 처리 (별도 리스너 불필요)
 
     // ============================================================
     // Theme (Dark / Light) — OKLCH lightness invert via [data-theme]
@@ -5038,7 +5038,7 @@
       document.querySelectorAll('#lockup-calendar-card [data-lockup-window]').forEach(el => {
         const on = parseInt(el.dataset.lockupWindow, 10) === days;
         el.classList.toggle('active', on);
-        el.setAttribute('aria-selected', on ? 'true' : 'false');  // a11y: role=tab
+        el.setAttribute('aria-pressed', on ? 'true' : 'false');  // a11y: 토글 그룹(role=group)
       });
       renderLockupCalendar();
     }
@@ -6470,13 +6470,8 @@
       const url = window.location.href;
       try {
         await navigator.clipboard.writeText(url);
-        // toast
-        const toast = document.createElement('div');
-        toast.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-md text-sm';
-        toast.style.cssText = 'background: var(--accent); color: var(--card); box-shadow: var(--shadow-md);';
-        toast.textContent = '✓ URL 복사됨 (현재 필터 상태 포함)';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 2200);
+        // aria-live 처리된 pushToast 재사용 (F-07: 스크린리더 status 알림)
+        if (typeof pushToast === 'function') pushToast('URL 복사됨 (현재 필터 상태 포함)', 'success', 2200);
       } catch (e) {
         prompt('복사 실패 — 아래 URL 을 직접 복사하세요:', url);
       }
