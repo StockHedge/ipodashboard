@@ -65,9 +65,9 @@ def _ssl_ctx(verify: bool) -> ssl.SSLContext:
     return ctx
 
 
-def _fetch_38(o: str, timeout: int = 20) -> str:
-    """38 데스크탑 목록 페이지(EUC-KR) → str. 검증 우선, 실패 시 CERT_NONE fallback."""
-    url = f"{_38_BASE}?o={o}"
+def _fetch_38(o: str, no: Optional[str] = None, timeout: int = 20) -> str:
+    """38 데스크탑 페이지(EUC-KR) → str. o=목록, no 지정 시 종목상세(o=v&no=). 검증 우선, 실패 시 CERT_NONE."""
+    url = f"{_38_BASE}?o={o}" + (f"&no={no}" if no else "")
     req = urllib.request.Request(url, headers=_HEADERS)
     for verify in (True, False):
         try:
@@ -129,8 +129,10 @@ def _parse_nw(html: str) -> dict[str, dict]:
         key = _norm(name)
         if not key or key in out:
             continue
+        no_m = re.search(r"no=(\d+)", tr)
         out[key] = {
             "name": re.sub(r"\(\s*구[.\s].*?\)", "", name).strip(),
+            "no": no_m.group(1) if no_m else None,
             "listingDate": ld,
             "offeringPrice": _num(tds[4]),
             "firstDayReturn": _num(tds[7]),   # 시초가 수익률(공모가 대비)
@@ -164,6 +166,18 @@ def _parse_r1(html: str) -> dict[str, dict]:
             "lockupRate": _num(lock),
             "underwriter": uw,
         }
+    return out
+
+
+def _parse_detail(html: str) -> dict:
+    """38 종목상세(o=v&no=) → {competitionRetail}. '청약경쟁률 n:1' 의 일반청약 통합경쟁률.
+    청약 전 종목은 미게재 → 빈 dict. (기관경쟁률/확약은 o=r1 에서 별도 수집.)"""
+    out: dict = {}
+    i = html.find("청약경쟁률")
+    if i >= 0:
+        m = re.search(r"([\d,]+\.?\d*)\s*[:：]\s*1", html[i:i + 200])
+        if m:
+            out["competitionRetail"] = _num(m.group(1))
     return out
 
 
@@ -251,6 +265,13 @@ def get_recent_listings(since: str = "2026-04-30", max_items: int = MAX_LIVE_LIS
         name = n["name"]
         offering = n.get("offeringPrice") or fund.get("offeringPrice")
         ticker, market = _fdr_lookup(df, name)
+        # 38 종목상세 — 개인(일반청약) 경쟁률 (best-effort, 상장완료 종목만 게재)
+        comp_retail = None
+        if n.get("no"):
+            try:
+                comp_retail = _parse_detail(_fetch_38("v", no=n["no"])).get("competitionRetail")
+            except Exception as e:
+                logger.warning("38 상세(%s no=%s) 실패: %s", name, n["no"], repr(e)[:60])
         is_spac = "스팩" in name
         close = n.get("firstDayClose")
         close_ret = round((close / offering - 1) * 100, 2) if (offering and close) else None
@@ -269,7 +290,7 @@ def get_recent_listings(since: str = "2026-04-30", max_items: int = MAX_LIVE_LIS
             "return1M": None,
             "return3M": None,
             "return6M": None,
-            "competitionRetail": None,
+            "competitionRetail": comp_retail,
             "competitionInst": fund.get("competitionInst"),
             "offeringAmount": None,
             "lockupRate": fund.get("lockupRate"),     # 의무보유확약 총 비율 (o=r1)

@@ -130,11 +130,15 @@ def _auth() -> dict:
     return {"Authorization": f"Bearer {get_token()}"}
 
 
-def get_candles(symbol: str, interval: str = "1d", count: int = 200) -> list[dict]:
+def get_candles(symbol: str, interval: str = "1d", count: int = 200,
+                before: Optional[str] = None) -> list[dict]:
     """일봉(기본) 조회 → 과거→최근 정렬. 원소: {date, open, high, low, close, volume}.
-    count 최대 200. 상장일이 count 범위를 벗어나면 before 페이지네이션 필요(여기선 미사용)."""
+    count 최대 200. before(ISO 8601, 예 '2025-10-12T00:00:00+09:00') 지정 시 그 시각 이전 200봉
+    → 과거 상장 종목의 상장일 구간을 1회로 커버(상장일+약290일을 before 로 주면 상장일 포함)."""
     path = (f"/api/v1/candles?symbol={urllib.parse.quote(symbol)}"
             f"&interval={interval}&count={min(count, 200)}")
+    if before:
+        path += f"&before={urllib.parse.quote(before, safe='')}"
     j = _request("GET", path, headers=_auth())
     res = j.get("result", j)
     raw = res.get("candles") if isinstance(res, dict) else (res if isinstance(res, list) else [])
