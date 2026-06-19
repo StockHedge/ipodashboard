@@ -907,6 +907,11 @@
         <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
         <span>분석</span>
       </button>
+      <button type="button" class="sidebar-menu-item" id="nav-lockup" onclick="showView('lockup')" title="의무보유확약(락업) 해제 일정 관리">
+        <svg class="sidebar-menu-item__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+        <span>락업 관리</span>
+        <span class="sidebar-menu-item__badge" id="lockup-badge" style="display:none">0</span>
+      </button>
     </nav>
 
     <!-- Tools -->
@@ -1679,6 +1684,82 @@
           축 칩을 클릭하여 표시 차원 토글. 차트 안에서 축을 드래그하면 brushing (즉시 하이라이트).
         </div>
       </section>
+    </div>
+
+    <!-- ============================================================
+         #lockup-root — 락업(의무보유확약) 관리 (#/lockup)
+         전 종목 × 4구간(상장일 + 15/30/90/180일) 해제 일정 — 다가오는 순 + 참여 종목 강조
+         ============================================================ -->
+    <div id="lockup-root" class="hidden-view">
+      <header class="flex items-end justify-between mb-5 gap-3 flex-wrap">
+        <div>
+          <h1 class="heading-1">락업 관리</h1>
+          <p class="text-sm text-[var(--muted)] mt-0.5" style="word-break:keep-all">의무보유확약 해제 일정 — 상장일 + 15/30/90/180일. 다가오는 해제 순으로 매물 출회 압력을 관리</p>
+        </div>
+        <button type="button" class="header-tool" onclick="showView('today')">
+          <svg class="header-tool__icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          <span>오늘 화면으로</span>
+        </button>
+      </header>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5" id="lockup-mgr-kpi"></div>
+
+      <div class="card p-4 mb-4">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
+          <div class="lg:col-span-4">
+            <div class="kpi-label mb-2">해제 구간</div>
+            <div class="flex flex-wrap gap-1.5" id="lockup-mgr-period" role="group" aria-label="해제 구간 필터">
+              <button type="button" class="filter-chip active" data-lmp="all" onclick="setLockupMgr('period','all')" aria-pressed="true">전체</button>
+              <button type="button" class="filter-chip" data-lmp="15" onclick="setLockupMgr('period','15')" aria-pressed="false">15일</button>
+              <button type="button" class="filter-chip" data-lmp="30" onclick="setLockupMgr('period','30')" aria-pressed="false">30일</button>
+              <button type="button" class="filter-chip" data-lmp="90" onclick="setLockupMgr('period','90')" aria-pressed="false">90일</button>
+              <button type="button" class="filter-chip" data-lmp="180" onclick="setLockupMgr('period','180')" aria-pressed="false">180일</button>
+            </div>
+          </div>
+          <div class="lg:col-span-3">
+            <div class="kpi-label mb-2">기간</div>
+            <div class="flex flex-wrap gap-1.5" id="lockup-mgr-range" role="group" aria-label="기간 필터">
+              <button type="button" class="filter-chip active" data-lmr="upcoming" onclick="setLockupMgr('range','upcoming')" aria-pressed="true">다가오는</button>
+              <button type="button" class="filter-chip" data-lmr="past" onclick="setLockupMgr('range','past')" aria-pressed="false">지난</button>
+              <button type="button" class="filter-chip" data-lmr="all" onclick="setLockupMgr('range','all')" aria-pressed="false">전체</button>
+            </div>
+          </div>
+          <div class="lg:col-span-3">
+            <label class="kpi-label block mb-2" for="lockup-mgr-search">검색</label>
+            <input type="text" id="lockup-mgr-search" placeholder="종목명 검색…" class="w-full text-sm px-3 py-2 rounded-md border border-[var(--border)] bg-[var(--card)] focus-ring" oninput="setLockupMgr('search', this.value)">
+          </div>
+          <div class="lg:col-span-2">
+            <div class="kpi-label mb-2">대상</div>
+            <button type="button" class="filter-chip" id="lockup-mgr-part" onclick="setLockupMgr('participatedOnly','toggle')" aria-pressed="false">참여 종목만</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div class="section-title mb-0">해제 일정 <span id="lockup-mgr-count" class="font-normal text-[var(--muted)] text-xs ml-2"></span></div>
+          <div class="text-xs text-[var(--muted)]">행 클릭 → 종목 상세 · 구간 색: 15·30·90·180일</div>
+        </div>
+        <div class="overflow-x-auto rounded-lg border border-[var(--border)]">
+          <table class="data-table w-full min-w-[680px]">
+            <thead>
+              <tr>
+                <th>종목</th>
+                <th>시장</th>
+                <th>해제 구간</th>
+                <th>해제 예정일</th>
+                <th class="text-right">D-day</th>
+                <th class="text-right hide-mobile">첫날 수익률</th>
+                <th class="text-center">참여</th>
+              </tr>
+            </thead>
+            <tbody id="lockup-mgr-tbody"></tbody>
+          </table>
+        </div>
+        <div id="lockup-mgr-empty" class="hidden text-center text-[var(--muted)] py-12" style="word-break:keep-all">
+          조건에 맞는 락업 해제가 없습니다. 구간/기간 필터를 조정하거나 "지난" 해제를 확인하세요.
+        </div>
+      </div>
     </div>
 
   <!-- ============================================================
@@ -4805,6 +4886,7 @@
     function renderAll() {
       renderKPIs();
       renderLockupCalendar();
+      updateLockupBadge();
       renderTodayBoard();
       // 무거운 렌더는 보이는 view 에만 — 다른 view 는 진입 시 showView 가 재렌더
       if (!document.getElementById('screener-root')?.classList.contains('hidden-view')) {
@@ -4959,6 +5041,102 @@
         el.setAttribute('aria-selected', on ? 'true' : 'false');  // a11y: role=tab
       });
       renderLockupCalendar();
+    }
+
+    // ============================================================
+    // 락업 관리 페이지 (#/lockup) — 전 종목 × 4구간 해제 일정 (다가오는 순 + 참여 강조)
+    // ============================================================
+    let _lockupMgr = { period: 'all', range: 'upcoming', participatedOnly: false, search: '' };
+
+    function setLockupMgr(k, v) {
+      if (k === 'participatedOnly') {
+        _lockupMgr.participatedOnly = (v === 'toggle') ? !_lockupMgr.participatedOnly : !!v;
+        const b = document.getElementById('lockup-mgr-part');
+        if (b) { b.classList.toggle('active', _lockupMgr.participatedOnly); b.setAttribute('aria-pressed', String(_lockupMgr.participatedOnly)); }
+      } else {
+        _lockupMgr[k] = v;
+      }
+      if (k === 'period') document.querySelectorAll('#lockup-mgr-period .filter-chip').forEach(el => {
+        const on = el.dataset.lmp === String(v); el.classList.toggle('active', on); el.setAttribute('aria-pressed', String(on));
+      });
+      if (k === 'range') document.querySelectorAll('#lockup-mgr-range .filter-chip').forEach(el => {
+        const on = el.dataset.lmr === v; el.classList.toggle('active', on); el.setAttribute('aria-pressed', String(on));
+      });
+      renderLockupManager();
+    }
+
+    // 사이드바 배지 — 다가오는 D-7 이내 해제 건수 (전 종목 4구간 합산)
+    function updateLockupBadge() {
+      const badge = document.getElementById('lockup-badge');
+      if (!badge) return;
+      let n = 0;
+      (ipoData || []).forEach(r => {
+        if (!r.listingDate) return;
+        getLockupReleases(r).forEach(x => { if (x.dday >= 0 && x.dday <= 7) n++; });
+      });
+      badge.style.display = n ? '' : 'none';
+      badge.textContent = n;
+    }
+
+    function renderLockupManager() {
+      const tbody = document.getElementById('lockup-mgr-tbody');
+      const empty = document.getElementById('lockup-mgr-empty');
+      const kpiEl = document.getElementById('lockup-mgr-kpi');
+      if (!tbody) return;
+      const m = _lockupMgr;
+      const q = (m.search || '').trim().toLowerCase();
+      const rows = [];
+      let wk = 0, mo = 0, partImm = 0;
+      (ipoData || []).forEach(r => {
+        if (!r.listingDate) return;
+        const part = (typeof isParticipated === 'function') && isParticipated(r.name);
+        getLockupReleases(r).forEach(x => {
+          // 요약 카운트 — 필터와 무관하게 전체 기준 (다가오는 것만)
+          if (x.dday >= 0 && x.dday <= 7) wk++;
+          if (x.dday >= 0 && x.dday <= 30) mo++;
+          if (part && x.dday >= 0 && x.dday <= 30) partImm++;
+          // 필터 적용
+          if (m.period !== 'all' && String(x.days) !== m.period) return;
+          if (m.range === 'upcoming' && x.dday < 0) return;
+          if (m.range === 'past' && x.dday >= 0) return;
+          if (m.participatedOnly && !part) return;
+          if (q && !(r.name || '').toLowerCase().includes(q)) return;
+          rows.push({ r, x, part });
+        });
+      });
+      rows.sort((a, b) => {
+        if (m.range === 'past') return b.x.dday - a.x.dday;        // 최근 해제 먼저
+        if (m.range === 'all') return Math.abs(a.x.dday) - Math.abs(b.x.dday);
+        return a.x.dday - b.x.dday;                                 // 가까운 해제 먼저
+      });
+      if (kpiEl) {
+        kpiEl.innerHTML = [
+          ['이번주 해제 (D-7)', wk], ['이번달 해제 (D-30)', mo],
+          ['참여 종목 임박 (D-30)', partImm], ['표시 중', rows.length],
+        ].map(([l, v]) => `<div class="card p-4"><div class="kpi-label">${l}</div><div class="kpi-value mt-1">${v}<span class="text-sm font-normal text-[var(--muted)]"> 건</span></div></div>`).join('');
+      }
+      const cnt = document.getElementById('lockup-mgr-count');
+      const shown = rows.slice(0, 200);
+      if (cnt) cnt.textContent = `${rows.length}건${rows.length > 200 ? ' (상위 200 표시)' : ''}`;
+      if (!shown.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      const PCLS = { 15: 'today-ev--demand', 30: 'today-ev--sub', 90: 'today-ev--list', 180: 'today-ev--lock' };
+      tbody.innerHTML = shown.map(({ r, x, part }) => {
+        const past = x.dday < 0;
+        const ddayTone = past ? 'text-[var(--muted)]' : (x.dday <= 7 ? 'neg' : x.dday <= 30 ? 'warning-text' : 'pos');
+        const ddayText = past ? `D+${Math.abs(x.dday)}` : `D-${x.dday}`;
+        const fdr = r.firstDayReturn;
+        const fdrTone = fdr == null ? 'text-[var(--muted)]' : fdr >= 0 ? 'pos' : 'neg';
+        return `<tr class="cursor-pointer" onclick="openStockDetail(${r.id})">
+          <td class="font-medium">${escHtml(r.name)}${getNaverLinkHTML(r)}</td>
+          <td><span class="market-badge ${r.market === 'KOSPI' ? 'market-kospi' : 'market-kosdaq'}">${escHtml(r.market || '')}</span></td>
+          <td><span class="today-ev ${PCLS[x.days] || ''}">${x.label}째</span></td>
+          <td class="tabular-nums">${_fmtDate(x.date)}</td>
+          <td class="text-right tabular-nums font-semibold ${ddayTone}">${ddayText}</td>
+          <td class="text-right tabular-nums hide-mobile ${fdrTone}">${formatPct(fdr)}</td>
+          <td class="text-center">${part ? '<span class="source-badge source-38">참여</span>' : ''}</td>
+        </tr>`;
+      }).join('');
     }
 
     function renderLockupCalendar() {
@@ -5504,6 +5682,7 @@
       positions: { root: 'positions-root', nav: 'nav-positions', hash: '#/positions' },
       analytics: { root: 'advanced-root',  nav: 'nav-advanced',  hash: '#/analytics' },
       stock:     { root: 'stock-root',     nav: 'nav-screener',  hash: '#/stock' },
+      lockup:    { root: 'lockup-root',    nav: 'nav-lockup',    hash: '#/lockup' },
     };
     const LEGACY_VIEW_TAB = { participation: 'participation', portfolio: 'portfolio', regret: 'regret' };
     let _activePositionsTab = 'participation';
@@ -5544,6 +5723,8 @@
         setPositionsTab(opts.tab || _activePositionsTab);
       } else if (view === 'stock') {
         if (opts.key != null) renderStockDetail(opts.key);
+      } else if (view === 'lockup') {
+        renderLockupManager();
       }
       if (window.matchMedia('(max-width: 1023px)').matches) closeSidebar();
       window.scrollTo({ top: 0, behavior: 'instant' });
@@ -6935,6 +7116,7 @@
           '#/participation': { view: 'positions', opts: { tab: 'participation' } },
           '#/portfolio':     { view: 'positions', opts: { tab: 'portfolio' } },
           '#/regret':        { view: 'positions', opts: { tab: 'regret' } },
+          '#/lockup':        { view: 'lockup' },
         };
         return map[h] || { view: 'today' };
       }
